@@ -108,7 +108,7 @@ int main() {
   // need just compute and transfer, but add graphics to select a generic queue.
   constexpr VkQueueFlags graphics_queue_flags =
       VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
-  for (int i = 0; i < queue_families.size(); i++) {
+  for (int i = 0; i < queue_families.size(); ++i) {
     const auto& queue_family = queue_families[i];
     if ((queue_family.queueFlags & graphics_queue_flags) ==
         graphics_queue_flags) {
