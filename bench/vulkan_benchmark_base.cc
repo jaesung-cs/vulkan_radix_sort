@@ -151,60 +151,152 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   command_pool_info.queueFamilyIndex = queue_family_index_;
   vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
 
-  VkCommandBuffer command_buffer;
   VkCommandBufferAllocateInfo command_buffer_info = {
       VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
   command_buffer_info.commandPool = command_pool_;
   command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   command_buffer_info.commandBufferCount = 1;
-  vkAllocateCommandBuffers(device_, &command_buffer_info, &command_buffer);
+  vkAllocateCommandBuffers(device_, &command_buffer_info, &command_buffer_);
+
+  // fence
+  VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+  vkCreateFence(device_, &fence_info, NULL, &fence_);
 
   // sorter
   VxSorterCreateInfo sorter_info = {};
   sorter_info.device = device_;
+  sorter_info.maxCommandsInFlight = 1;
   vxCreateSorter(&sorter_info, &sorter_);
 
-  // TODO: commands
-  /*
+  // preallocate buffers
   {
-    VkCommandBufferBeginInfo command_buffer_begin_info = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    command_buffer_begin_info.flags =
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
-
-    int n = 1024;
-    // TODO: random init keys
-    // TODO: CPU to GPU
-
-    vxCmdRadixSortGlobalHistogram(command_buffer, sorter_, n);
-
-    // TODO: GPU to CPU
-
-    vkEndCommandBuffer(command_buffer);
-
-    VkCommandBufferSubmitInfo command_buffer_submit_info = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-    command_buffer_submit_info.commandBuffer = command_buffer;
-
-    VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-    submit.commandBufferInfoCount = 1;
-    submit.pCommandBufferInfos = &command_buffer_submit_info;
-    vkQueueSubmit2(queue_, 1, &submit, NULL);
-
-    vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
-    vkResetFences(device_, 1, &fence_);
+    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.usage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.size = MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                    &keys_.buffer, &keys_.allocation, NULL);
   }
-  */
+  {
+    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.size = 4 * 256 * sizeof(uint32_t);
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                    &histogram_.buffer, &histogram_.allocation, NULL);
+  }
+  {
+    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.usage =
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.size = MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.flags =
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+        VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    VmaAllocationInfo allocation_info;
+    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                    &staging_.buffer, &staging_.allocation, &allocation_info);
+    staging_.map = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
+  }
 }
 
 VulkanBenchmarkBase::~VulkanBenchmarkBase() {
   vkDeviceWaitIdle(device_);
 
+  vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
+  vmaDestroyBuffer(allocator_, histogram_.buffer, histogram_.allocation);
+  vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
+
   vxDestroySorter(sorter_);
+  vkDestroyFence(device_, fence_, NULL);
   vkDestroyCommandPool(device_, command_pool_, NULL);
   vmaDestroyAllocator(allocator_);
   vkDestroyDevice(device_, NULL);
   DestroyDebugUtilsMessengerEXT(instance_, messenger_, NULL);
   vkDestroyInstance(instance_, NULL);
+}
+
+std::vector<uint32_t> VulkanBenchmarkBase::GlobalHistogram(
+    const std::vector<uint32_t>& keys) {
+  auto element_count = keys.size();
+
+  std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
+
+  VkCommandBufferBeginInfo command_buffer_begin_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
+
+  // copy to keys buffer
+  VkBufferCopy region = {};
+  region.srcOffset = 0;
+  region.dstOffset = 0;
+  region.size = element_count * sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
+
+  VkBufferMemoryBarrier2 buffer_barrier = {
+      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  buffer_barrier.buffer = keys_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = element_count * sizeof(uint32_t);
+  VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  // histogram
+  vxCmdRadixSortGlobalHistogram(command_buffer_, sorter_, element_count,
+                                keys_.buffer, 0, histogram_.buffer, 0);
+
+  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+  buffer_barrier.buffer = histogram_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = 4 * 256 * sizeof(uint32_t);
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  // copy to staging buffer
+  region.srcOffset = 0;
+  region.dstOffset = 0;
+  region.size = 4 * 256 * sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, histogram_.buffer, staging_.buffer, 1,
+                  &region);
+
+  vkEndCommandBuffer(command_buffer_);
+
+  std::cout << "command" << std::endl;
+
+  VkCommandBufferSubmitInfo command_buffer_submit_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+  command_buffer_submit_info.commandBuffer = command_buffer_;
+
+  VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  submit.commandBufferInfoCount = 1;
+  submit.pCommandBufferInfos = &command_buffer_submit_info;
+  std::cout << "command submit" << std::endl;
+  vkQueueSubmit2(queue_, 1, &submit, fence_);
+  std::cout << "command submit done" << std::endl;
+
+  vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  vkResetFences(device_, 1, &fence_);
+
+  std::cout << "command done" << std::endl;
+
+  std::vector<uint32_t> result(4 * 256);
+  std::memcpy(result.data(), staging_.map, 4 * 256 * sizeof(uint32_t));
+  return result;
 }
