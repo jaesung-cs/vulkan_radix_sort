@@ -5,6 +5,8 @@
 
 namespace {
 
+constexpr uint32_t RADIX = 256;
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
               VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -165,7 +167,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   // sorter
   VxSorterCreateInfo sorter_info = {};
   sorter_info.device = device_;
-  sorter_info.maxCommandsInFlight = 1;
+  sorter_info.maxCommandsInFlight = 2;
   vxCreateSorter(&sorter_info, &sorter_);
 
   // preallocate buffers
@@ -184,7 +186,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = 4 * 256 * sizeof(uint32_t);
+    buffer_info.size = 2 * 4 * 256 * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
@@ -223,7 +225,7 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
   vkDestroyInstance(instance_, NULL);
 }
 
-std::vector<uint32_t> VulkanBenchmarkBase::GlobalHistogram(
+VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::GlobalHistogram(
     const std::vector<uint32_t>& keys) {
   auto element_count = keys.size();
 
@@ -241,6 +243,7 @@ std::vector<uint32_t> VulkanBenchmarkBase::GlobalHistogram(
   region.size = element_count * sizeof(uint32_t);
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
+  // histogram
   VkBufferMemoryBarrier2 buffer_barrier = {
       VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
   buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -255,10 +258,25 @@ std::vector<uint32_t> VulkanBenchmarkBase::GlobalHistogram(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  // histogram
   vxCmdRadixSortGlobalHistogram(command_buffer_, sorter_, element_count,
                                 keys_.buffer, 0, histogram_.buffer, 0);
 
+  // scan
+  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  buffer_barrier.buffer = histogram_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = 4 * RADIX * sizeof(uint32_t);
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  vxCmdRadixSortGlobalHistogramScan(command_buffer_, sorter_, histogram_.buffer,
+                                    0, histogram_.buffer,
+                                    4 * RADIX * sizeof(uint32_t));
+
+  // copy to staging buffer
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
   buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
   buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
@@ -266,19 +284,16 @@ std::vector<uint32_t> VulkanBenchmarkBase::GlobalHistogram(
   buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
   buffer_barrier.buffer = histogram_.buffer;
   buffer_barrier.offset = 0;
-  buffer_barrier.size = 4 * 256 * sizeof(uint32_t);
+  buffer_barrier.size = 2 * 4 * RADIX * sizeof(uint32_t);
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  // copy to staging buffer
   region.srcOffset = 0;
   region.dstOffset = 0;
-  region.size = 4 * 256 * sizeof(uint32_t);
+  region.size = 2 * 4 * RADIX * sizeof(uint32_t);
   vkCmdCopyBuffer(command_buffer_, histogram_.buffer, staging_.buffer, 1,
                   &region);
 
   vkEndCommandBuffer(command_buffer_);
-
-  std::cout << "command" << std::endl;
 
   VkCommandBufferSubmitInfo command_buffer_submit_info = {
       VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
@@ -287,16 +302,18 @@ std::vector<uint32_t> VulkanBenchmarkBase::GlobalHistogram(
   VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
   submit.commandBufferInfoCount = 1;
   submit.pCommandBufferInfos = &command_buffer_submit_info;
-  std::cout << "command submit" << std::endl;
   vkQueueSubmit2(queue_, 1, &submit, fence_);
-  std::cout << "command submit done" << std::endl;
 
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::cout << "command done" << std::endl;
-
-  std::vector<uint32_t> result(4 * 256);
-  std::memcpy(result.data(), staging_.map, 4 * 256 * sizeof(uint32_t));
+  IntermediateResults result;
+  result.histogram.resize(4 * RADIX);
+  std::memcpy(result.histogram.data(), staging_.map,
+              4 * RADIX * sizeof(uint32_t));
+  result.histogram_cumsum.resize(4 * RADIX);
+  std::memcpy(result.histogram_cumsum.data(),
+              staging_.map + 4 * RADIX * sizeof(uint32_t),
+              4 * RADIX * sizeof(uint32_t));
   return result;
 }

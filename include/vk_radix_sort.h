@@ -27,4 +27,8 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
                                    VkBuffer histogramBuffer,
                                    VkDeviceSize histogramOffset);
 
+void vxCmdRadixSortGlobalHistogramScan(
+    VkCommandBuffer commandBuffer, VxSorter sorter, VkBuffer histogramBuffer,
+    VkDeviceSize histogramOffset, VkBuffer scanBuffer, VkDeviceSize scanOffset);
+
 #endif  // VK_RADIX_SORT_H
