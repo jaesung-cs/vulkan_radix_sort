@@ -8,6 +8,7 @@
 
 #include "shader/histogram.h"
 #include "shader/scan.h"
+#include "shader/binning.h"
 
 namespace {
 
@@ -16,6 +17,18 @@ constexpr uint32_t PARTITION_SIZE = 7680;
 constexpr uint32_t WORKGROUP_SIZE = 512;
 
 uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
+
+constexpr VkDeviceSize HistogramByteSize() {
+  return 4 * RADIX * sizeof(uint32_t);
+}
+
+VkDeviceSize InoutByteSize(uint32_t elementCount) {
+  return elementCount * sizeof(uint32_t);
+}
+
+VkDeviceSize LookbackByteSize(uint32_t elementCount) {
+  return (1 + RADIX * RoundUp(elementCount, PARTITION_SIZE)) * sizeof(uint32_t);
+}
 
 // Compiles a shader to a SPIR-V binary, and create a VkShaderModule.
 VkShaderModule CreateShaderModule(VkDevice device, VkShaderStageFlagBits stage,
@@ -77,6 +90,7 @@ struct VxSorter_T {
   VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
   VkPipeline histogramPipeline = VK_NULL_HANDLE;
   VkPipeline scanPipeline = VK_NULL_HANDLE;
+  VkPipeline binningPipeline = VK_NULL_HANDLE;
 
   VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet> storageDescriptors;
@@ -85,6 +99,7 @@ struct VxSorter_T {
 
 struct PushConstants {
   uint32_t elementCount;
+  uint32_t pass;
 };
 
 void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
@@ -94,7 +109,7 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
   // descriptor set layouts
   VkDescriptorSetLayout storageDescriptorSetLayout;
   {
-    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings(2);
+    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings(3);
     descriptorSetLayoutBindings[0] = {};
     descriptorSetLayoutBindings[0].binding = 0;
     descriptorSetLayoutBindings[0].descriptorType =
@@ -108,6 +123,13 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorSetLayoutBindings[1].descriptorCount = 1;
     descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    descriptorSetLayoutBindings[2] = {};
+    descriptorSetLayoutBindings[2].binding = 2;
+    descriptorSetLayoutBindings[2].descriptorType =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorSetLayoutBindings[2].descriptorCount = 1;
+    descriptorSetLayoutBindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = {
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -200,6 +222,26 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
     vkDestroyShaderModule(device, pipelineModule, NULL);
   }
 
+  VkPipeline binningPipeline;
+  {
+    VkShaderModule pipelineModule =
+        CreateShaderModule(device, VK_SHADER_STAGE_COMPUTE_BIT, binning_comp);
+
+    VkComputePipelineCreateInfo pipelineInfo = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    pipelineInfo.stage.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.pName = "main";
+    pipelineInfo.layout = pipelineLayout;
+
+    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+                             &binningPipeline);
+
+    vkDestroyShaderModule(device, pipelineModule, NULL);
+  }
+
   // descriptor pool
   std::vector<VkDescriptorPoolSize> poolSizes = {
       {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * frameCount},
@@ -248,6 +290,7 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
   (*pSorter)->pipelineLayout = pipelineLayout;
   (*pSorter)->histogramPipeline = histogramPipeline;
   (*pSorter)->scanPipeline = scanPipeline;
+  (*pSorter)->binningPipeline = binningPipeline;
   (*pSorter)->storageDescriptors = std::move(storageDescriptors);
   (*pSorter)->inoutDescriptors = std::move(inoutDescriptors);
 }
@@ -255,6 +298,7 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
 void vxDestroySorter(VxSorter sorter) {
   vkDestroyPipeline(sorter->device, sorter->histogramPipeline, NULL);
   vkDestroyPipeline(sorter->device, sorter->scanPipeline, NULL);
+  vkDestroyPipeline(sorter->device, sorter->binningPipeline, NULL);
   vkDestroyPipelineLayout(sorter->device, sorter->pipelineLayout, NULL);
   vkDestroyDescriptorSetLayout(sorter->device,
                                sorter->storageDescriptorSetLayout, NULL);
@@ -279,16 +323,17 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
   uint32_t commandIndex = sorter->commandIndex;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
   VkDescriptorSet inoutDescriptor = sorter->inoutDescriptors[commandIndex];
+  VkDeviceSize inoutBufferSize = InoutByteSize(elementCount);
 
   // write descriptors
   std::vector<VkDescriptorBufferInfo> descriptorBuffers(2);
   descriptorBuffers[0].buffer = histogramBuffer;
   descriptorBuffers[0].offset = histogramOffset;
-  descriptorBuffers[0].range = 4 * RADIX * sizeof(uint32_t);
+  descriptorBuffers[0].range = HistogramByteSize();
 
   descriptorBuffers[1].buffer = buffer;
   descriptorBuffers[1].offset = offset;
-  descriptorBuffers[1].range = elementCount * sizeof(uint32_t);
+  descriptorBuffers[1].range = inoutBufferSize;
 
   std::vector<VkWriteDescriptorSet> writes(2);
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -311,7 +356,7 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
 
   // fill command
   vkCmdFillBuffer(commandBuffer, histogramBuffer, histogramOffset,
-                  4 * RADIX * sizeof(uint32_t), 0);
+                  HistogramByteSize(), 0);
 
   std::vector<VkBufferMemoryBarrier2> bufferMemoryBarriers(1);
   bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -321,7 +366,7 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
   bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
   bufferMemoryBarriers[0].buffer = histogramBuffer;
   bufferMemoryBarriers[0].offset = 0;
-  bufferMemoryBarriers[0].size = 4 * RADIX * sizeof(uint32_t);
+  bufferMemoryBarriers[0].size = HistogramByteSize();
   VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
   dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
@@ -356,17 +401,16 @@ void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
                                        VkDeviceSize scanOffset) {
   uint32_t commandIndex = sorter->commandIndex;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
-  VkDescriptorSet inoutDescriptor = sorter->inoutDescriptors[commandIndex];
 
   // write descriptors
   std::vector<VkDescriptorBufferInfo> descriptorBuffers(2);
   descriptorBuffers[0].buffer = histogramBuffer;
   descriptorBuffers[0].offset = histogramOffset;
-  descriptorBuffers[0].range = 4 * RADIX * sizeof(uint32_t);
+  descriptorBuffers[0].range = HistogramByteSize();
 
   descriptorBuffers[1].buffer = scanBuffer;
   descriptorBuffers[1].offset = scanOffset;
-  descriptorBuffers[1].range = 4 * RADIX * sizeof(uint32_t);
+  descriptorBuffers[1].range = HistogramByteSize();
 
   std::vector<VkWriteDescriptorSet> writes(2);
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -397,6 +441,112 @@ void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
                           descriptors.data(), 0, nullptr);
 
   vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+  sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
+}
+
+void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
+                           uint32_t elementCount, uint32_t pass,
+                           VkBuffer buffer, VkDeviceSize offset,
+                           VkBuffer scanBuffer, VkDeviceSize scanOffset,
+                           VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
+                           VkBuffer outBuffer, VkDeviceSize outOffset) {
+  uint32_t commandIndex = sorter->commandIndex;
+  VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
+  VkDescriptorSet inoutDescriptor = sorter->inoutDescriptors[commandIndex];
+  VkDeviceSize inoutBufferSize = InoutByteSize(elementCount);
+  VkDeviceSize lookbackBufferSize = LookbackByteSize(elementCount);
+  uint32_t partitionCount = RoundUp(elementCount, PARTITION_SIZE);
+
+  // write descriptors
+  std::vector<VkDescriptorBufferInfo> descriptorBuffers(4);
+  descriptorBuffers[0].buffer = scanBuffer;
+  descriptorBuffers[0].offset = scanOffset;
+  descriptorBuffers[0].range = HistogramByteSize();
+
+  descriptorBuffers[1].buffer = lookbackBuffer;
+  descriptorBuffers[1].offset = lookbackOffset;
+  descriptorBuffers[1].range = lookbackBufferSize;
+
+  descriptorBuffers[2].buffer = buffer;
+  descriptorBuffers[2].offset = offset;
+  descriptorBuffers[2].range = inoutBufferSize;
+
+  descriptorBuffers[3].buffer = outBuffer;
+  descriptorBuffers[3].offset = outOffset;
+  descriptorBuffers[3].range = inoutBufferSize;
+
+  std::vector<VkWriteDescriptorSet> writes(4);
+  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[0].dstSet = storageDescriptor;
+  writes[0].dstBinding = 1;
+  writes[0].dstArrayElement = 0;
+  writes[0].descriptorCount = 1;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[0].pBufferInfo = &descriptorBuffers[0];
+
+  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[1].dstSet = storageDescriptor;
+  writes[1].dstBinding = 2;
+  writes[1].dstArrayElement = 0;
+  writes[1].descriptorCount = 1;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[1].pBufferInfo = &descriptorBuffers[1];
+
+  writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[2].dstSet = inoutDescriptor;
+  writes[2].dstBinding = 0;
+  writes[2].dstArrayElement = 0;
+  writes[2].descriptorCount = 1;
+  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[2].pBufferInfo = &descriptorBuffers[2];
+
+  writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[3].dstSet = inoutDescriptor;
+  writes[3].dstBinding = 1;
+  writes[3].dstArrayElement = 0;
+  writes[3].descriptorCount = 1;
+  writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[3].pBufferInfo = &descriptorBuffers[3];
+
+  vkUpdateDescriptorSets(sorter->device, writes.size(), writes.data(), 0, NULL);
+
+  // clear lookback buffer
+  vkCmdFillBuffer(commandBuffer, lookbackBuffer, 0, lookbackBufferSize, 0);
+
+  // binning
+  std::vector<VkBufferMemoryBarrier2> bufferMemoryBarriers(1);
+  bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  bufferMemoryBarriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  bufferMemoryBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  bufferMemoryBarriers[0].dstAccessMask =
+      VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+  bufferMemoryBarriers[0].buffer = lookbackBuffer;
+  bufferMemoryBarriers[0].offset = 0;
+  bufferMemoryBarriers[0].size = lookbackBufferSize;
+  VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+  dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+  vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    sorter->binningPipeline);
+
+  std::vector<VkDescriptorSet> descriptors = {storageDescriptor,
+                                              inoutDescriptor};
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          sorter->pipelineLayout, 0, descriptors.size(),
+                          descriptors.data(), 0, nullptr);
+
+  PushConstants pushConstants;
+  pushConstants.elementCount = elementCount;
+  pushConstants.pass = pass;
+  vkCmdPushConstants(commandBuffer, sorter->pipelineLayout,
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
+                     &pushConstants);
+
+  vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
 
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
 }

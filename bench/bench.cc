@@ -8,18 +8,26 @@
 int main() {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
-  int size = 32;
+  int size = 64;
   auto keys = GenerateUniformRandomData(size);
 
-  std::cout << "keys" << std::endl;
+  // 8 bit
   for (int i = 0; i < size; i++) {
-    std::cout << std::hex << std::setw(9) << keys[i];
+    keys[i] = keys[i] & 0xFF;
+  }
+
+  std::cout << "keys" << std::endl;
+  std::cout << std::hex;
+  for (int i = 0; i < size; i++) {
+    std::cout << std::setfill('0') << std::setw(8) << keys[i] << " ";
   }
   std::cout << std::dec << std::endl;
 
   CudaBenchmarkBase cuda_benchmark;
   VulkanBenchmarkBase vulkan_benchmark;
 
+  // histogram
+  std::cout << "vulkan global histogram" << std::endl;
   auto result = vulkan_benchmark.GlobalHistogram(keys);
 
   constexpr uint32_t RADIX = 256;
@@ -37,6 +45,19 @@ int main() {
     for (int j = 0; j < RADIX; j++)
       std::cout << result.histogram_cumsum[i * RADIX + j] << ' ';
     std::cout << std::endl;
+  }
+
+  // sort
+  std::cout << "vulkan sort" << std::endl;
+  result = vulkan_benchmark.Sort(keys);
+
+  for (int i = 0; i < 4; i++) {
+    std::cout << "pass " << i << ":" << std::endl;
+    std::cout << std::hex;
+    for (int j = 0; j < result.keys[i].size(); j++)
+      std::cout << std::setfill('0') << std::setw(8) << result.keys[i][j]
+                << " ";
+    std::cout << std::dec << std::endl;
   }
 
   return 0;

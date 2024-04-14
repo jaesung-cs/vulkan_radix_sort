@@ -10,10 +10,11 @@
 #include <vk_radix_sort.h>
 
 class VulkanBenchmarkBase {
-  private:
+ private:
   struct IntermediateResults {
     std::vector<uint32_t> histogram;
     std::vector<uint32_t> histogram_cumsum;
+    std::vector<uint32_t> keys[4];
   };
 
  public:
@@ -21,6 +22,7 @@ class VulkanBenchmarkBase {
   ~VulkanBenchmarkBase();
 
   IntermediateResults GlobalHistogram(const std::vector<uint32_t>& keys);
+  IntermediateResults Sort(const std::vector<uint32_t>& keys);
 
  private:
   VkInstance instance_ = VK_NULL_HANDLE;
@@ -36,6 +38,7 @@ class VulkanBenchmarkBase {
   VxSorter sorter_ = VK_NULL_HANDLE;
 
   static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 24;
+  static constexpr uint32_t PARTITION_SIZE = 7680;
 
   struct Buffer {
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -43,7 +46,9 @@ class VulkanBenchmarkBase {
     uint8_t* map = nullptr;
   };
   Buffer keys_;
+  Buffer out_keys_;
   Buffer histogram_;  // histogram + prefix sum
+  Buffer lookback_;
   Buffer staging_;
 };
 

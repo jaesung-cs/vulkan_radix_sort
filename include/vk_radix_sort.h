@@ -31,4 +31,14 @@ void vxCmdRadixSortGlobalHistogramScan(
     VkCommandBuffer commandBuffer, VxSorter sorter, VkBuffer histogramBuffer,
     VkDeviceSize histogramOffset, VkBuffer scanBuffer, VkDeviceSize scanOffset);
 
+/**
+ * pass: 0, 1, 2, or 3.
+ */
+void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
+                           uint32_t elementCount, uint32_t pass,
+                           VkBuffer buffer, VkDeviceSize offset,
+                           VkBuffer scanBuffer, VkDeviceSize scanOffset,
+                           VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
+                           VkBuffer outBuffer, VkDeviceSize outOffset);
+
 #endif  // VK_RADIX_SORT_H

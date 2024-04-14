@@ -149,7 +149,8 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   // commands
   VkCommandPoolCreateInfo command_pool_info = {
       VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT |
+                            VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
   command_pool_info.queueFamilyIndex = queue_family_index_;
   vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
 
@@ -167,14 +168,15 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   // sorter
   VxSorterCreateInfo sorter_info = {};
   sorter_info.device = device_;
-  sorter_info.maxCommandsInFlight = 2;
+  sorter_info.maxCommandsInFlight = 6;
   vxCreateSorter(&sorter_info, &sorter_);
 
   // preallocate buffers
   {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.usage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     buffer_info.size = MAX_ELEMENT_COUNT * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
@@ -186,11 +188,35 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.size = MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                    &out_keys_.buffer, &out_keys_.allocation, NULL);
+  }
+  {
+    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     buffer_info.size = 2 * 4 * 256 * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
                     &histogram_.buffer, &histogram_.allocation, NULL);
+  }
+  {
+    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.size =
+        (1 + (MAX_ELEMENT_COUNT + PARTITION_SIZE - 1) / PARTITION_SIZE) *
+        sizeof(uint32_t);
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                    &lookback_.buffer, &lookback_.allocation, NULL);
   }
   {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -213,7 +239,9 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
   vkDeviceWaitIdle(device_);
 
   vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
+  vmaDestroyBuffer(allocator_, out_keys_.buffer, out_keys_.allocation);
   vmaDestroyBuffer(allocator_, histogram_.buffer, histogram_.allocation);
+  vmaDestroyBuffer(allocator_, lookback_.buffer, lookback_.allocation);
   vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
   vxDestroySorter(sorter_);
@@ -315,5 +343,79 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::GlobalHistogram(
   std::memcpy(result.histogram_cumsum.data(),
               staging_.map + 4 * RADIX * sizeof(uint32_t),
               4 * RADIX * sizeof(uint32_t));
+  return result;
+}
+
+VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
+    const std::vector<uint32_t>& keys) {
+  auto element_count = keys.size();
+  VkDeviceSize histogram_size = 4 * RADIX * sizeof(uint32_t);
+
+  auto result = GlobalHistogram(keys);
+
+  // now histogram buffer remains in GPU. binning.
+
+  for (int i = 0; i < 4; i++) {
+    std::cout << "sort pass " << i << std::endl;
+
+    VkBuffer in, out;
+    if (i % 2 == 0) {
+      in = keys_.buffer;
+      out = out_keys_.buffer;
+    } else {
+      in = keys_.buffer;
+      out = out_keys_.buffer;
+    }
+
+    VkCommandBufferBeginInfo command_buffer_begin_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    command_buffer_begin_info.flags =
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
+
+    vxCmdRadixSortBinning(command_buffer_, sorter_, element_count, i, in, 0,
+                          histogram_.buffer, histogram_size, lookback_.buffer,
+                          0, out, 0);
+
+    // copy to staging buffer
+    VkBufferMemoryBarrier2 buffer_barrier = {
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    buffer_barrier.buffer = out;
+    buffer_barrier.offset = 0;
+    buffer_barrier.size = element_count * sizeof(uint32_t);
+    VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependency_info.bufferMemoryBarrierCount = 1;
+    dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+    vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+    VkBufferCopy region;
+    region.srcOffset = 0;
+    region.dstOffset = 0;
+    region.size = element_count * sizeof(uint32_t);
+    vkCmdCopyBuffer(command_buffer_, out, staging_.buffer, 1, &region);
+
+    vkEndCommandBuffer(command_buffer_);
+
+    VkCommandBufferSubmitInfo command_buffer_submit_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+    command_buffer_submit_info.commandBuffer = command_buffer_;
+
+    VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    submit.commandBufferInfoCount = 1;
+    submit.pCommandBufferInfos = &command_buffer_submit_info;
+    vkQueueSubmit2(queue_, 1, &submit, fence_);
+
+    vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+    vkResetFences(device_, 1, &fence_);
+
+    result.keys[i].resize(element_count);
+    std::memcpy(result.keys[i].data(), staging_.map,
+                element_count * sizeof(uint32_t));
+  }
+
   return result;
 }
