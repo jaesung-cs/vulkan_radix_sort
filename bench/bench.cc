@@ -8,12 +8,12 @@
 int main() {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
-  int size = 7680;
+  int size = 10000000;
   auto keys = GenerateUniformRandomData(size);
 
   std::cout << "keys" << std::endl;
   std::cout << std::hex;
-  for (int i = 0; i < size; i++) {
+  for (int i = 0; i < size && i < 16; i++) {
     std::cout << std::setfill('0') << std::setw(8) << keys[i] << " ";
   }
   std::cout << std::dec << std::endl;
@@ -49,7 +49,7 @@ int main() {
   for (int i = 0; i < 4; i++) {
     std::cout << "pass " << i << ":" << std::endl;
     std::cout << std::hex;
-    for (int j = 0; j < result.keys[i].size(); j++)
+    for (int j = 0; j < result.keys[i].size() && j < 16; j++)
       std::cout << std::setfill('0') << std::setw(8) << result.keys[i][j]
                 << " ";
     std::cout << std::dec << std::endl;

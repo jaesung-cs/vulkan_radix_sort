@@ -210,9 +210,9 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size =
-        (1 + (MAX_ELEMENT_COUNT + PARTITION_SIZE - 1) / PARTITION_SIZE) *
-        sizeof(uint32_t);
+    buffer_info.size = (1 + RADIX * ((MAX_ELEMENT_COUNT + PARTITION_SIZE - 1) /
+                                     PARTITION_SIZE)) *
+                       sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,

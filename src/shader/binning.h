@@ -29,7 +29,9 @@ layout (set = 0, binding = 1) readonly buffer HistogramCumsum {
 
 layout (set = 0, binding = 2, std430) buffer Lookback {
   uint partitionCounter;  // startin from 0
-  uint lookback[];  // (ceil(N/P), R)
+
+  // Volatile memory enables lookback!
+  volatile uint lookback[];  // (ceil(N/P), R)
 };
 
 layout (set = 1, binding = 0) readonly buffer Keys {
