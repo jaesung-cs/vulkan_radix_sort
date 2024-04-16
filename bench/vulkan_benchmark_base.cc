@@ -354,7 +354,6 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   auto result = GlobalHistogram(keys);
 
   // now histogram buffer remains in GPU. binning.
-
   for (int i = 0; i < 4; i++) {
     std::cout << "sort pass " << i << std::endl;
 
@@ -363,8 +362,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
       in = keys_.buffer;
       out = out_keys_.buffer;
     } else {
-      in = keys_.buffer;
-      out = out_keys_.buffer;
+      in = out_keys_.buffer;
+      out = keys_.buffer;
     }
 
     VkCommandBufferBeginInfo command_buffer_begin_info = {

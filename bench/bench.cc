@@ -8,13 +8,8 @@
 int main() {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
-  int size = 64;
+  int size = 7680;
   auto keys = GenerateUniformRandomData(size);
-
-  // 8 bit
-  for (int i = 0; i < size; i++) {
-    keys[i] = keys[i] & 0xFF;
-  }
 
   std::cout << "keys" << std::endl;
   std::cout << std::hex;
@@ -59,6 +54,19 @@ int main() {
                 << " ";
     std::cout << std::dec << std::endl;
   }
+
+  bool wrong = false;
+  for (int j = 1; j < result.keys[3].size(); j++) {
+    if (result.keys[3][j - 1] > result.keys[3][j]) {
+      wrong = true;
+      break;
+    }
+  }
+
+  if (wrong)
+    std::cout << "wrong" << std::endl;
+  else
+    std::cout << "ok" << std::endl;
 
   return 0;
 }
