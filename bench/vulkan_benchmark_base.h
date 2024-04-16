@@ -22,6 +22,7 @@ class VulkanBenchmarkBase {
   ~VulkanBenchmarkBase();
 
   IntermediateResults GlobalHistogram(const std::vector<uint32_t>& keys);
+  IntermediateResults SortSteps(const std::vector<uint32_t>& keys);
   IntermediateResults Sort(const std::vector<uint32_t>& keys);
 
  private:

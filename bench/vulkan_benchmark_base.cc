@@ -346,7 +346,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::GlobalHistogram(
   return result;
 }
 
-VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
+VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortSteps(
     const std::vector<uint32_t>& keys) {
   auto element_count = keys.size();
   VkDeviceSize histogram_size = 4 * RADIX * sizeof(uint32_t);
@@ -416,5 +416,81 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
                 element_count * sizeof(uint32_t));
   }
 
+  return result;
+}
+
+VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
+    const std::vector<uint32_t>& keys) {
+  auto element_count = keys.size();
+
+  std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
+
+  VkCommandBufferBeginInfo command_buffer_begin_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
+
+  // copy to keys buffer
+  VkBufferCopy region = {};
+  region.srcOffset = 0;
+  region.dstOffset = 0;
+  region.size = element_count * sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
+
+  // sort
+  VkBufferMemoryBarrier2 buffer_barrier = {
+      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  buffer_barrier.buffer = keys_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = element_count * sizeof(uint32_t);
+  VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  vxCmdRadixSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
+                 histogram_.buffer, 0, histogram_.buffer,
+                 4 * RADIX * sizeof(uint32_t), lookback_.buffer, 0,
+                 out_keys_.buffer, 0);
+
+  // copy back
+  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+  buffer_barrier.buffer = keys_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = element_count * sizeof(uint32_t);
+  dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  region.srcOffset = 0;
+  region.dstOffset = 0;
+  region.size = element_count * sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &region);
+
+  vkEndCommandBuffer(command_buffer_);
+
+  VkCommandBufferSubmitInfo command_buffer_submit_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+  command_buffer_submit_info.commandBuffer = command_buffer_;
+  VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  submit.commandBufferInfoCount = 1;
+  submit.pCommandBufferInfos = &command_buffer_submit_info;
+  vkQueueSubmit2(queue_, 1, &submit, fence_);
+  vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  vkResetFences(device_, 1, &fence_);
+
+  IntermediateResults result;
+  result.keys[3].resize(element_count);
+  std::memcpy(result.keys[3].data(), staging_.map,
+              element_count * sizeof(uint32_t));
   return result;
 }

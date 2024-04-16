@@ -26,47 +26,79 @@ int main() {
   auto result = vulkan_benchmark.GlobalHistogram(keys);
 
   constexpr uint32_t RADIX = 256;
-  std::cout << "histogram:" << std::endl;
-  for (int i = 0; i < 4; i++) {
-    std::cout << "pass " << i << ":" << std::endl;
-    for (int j = 0; j < RADIX; j++)
-      std::cout << result.histogram[i * RADIX + j] << ' ';
-    std::cout << std::endl;
-  }
-
-  std::cout << "scan:" << std::dec << std::endl;
-  for (int i = 0; i < 4; i++) {
-    std::cout << "pass " << i << ":" << std::endl;
-    for (int j = 0; j < RADIX; j++)
-      std::cout << result.histogram_cumsum[i * RADIX + j] << ' ';
-    std::cout << std::endl;
-  }
-
-  // sort
-  std::cout << "vulkan sort" << std::endl;
-  result = vulkan_benchmark.Sort(keys);
-
-  for (int i = 0; i < 4; i++) {
-    std::cout << "pass " << i << ":" << std::endl;
-    std::cout << std::hex;
-    for (int j = 0; j < result.keys[i].size() && j < 16; j++)
-      std::cout << std::setfill('0') << std::setw(8) << result.keys[i][j]
-                << " ";
-    std::cout << std::dec << std::endl;
-  }
-
-  bool wrong = false;
-  for (int j = 1; j < result.keys[3].size(); j++) {
-    if (result.keys[3][j - 1] > result.keys[3][j]) {
-      wrong = true;
-      break;
+  if (!result.histogram.empty()) {
+    std::cout << "histogram:" << std::endl;
+    for (int i = 0; i < 4; i++) {
+      std::cout << "pass " << i << ":" << std::endl;
+      for (int j = 0; j < RADIX; j++)
+        std::cout << result.histogram[i * RADIX + j] << ' ';
+      std::cout << std::endl;
     }
   }
 
-  if (wrong)
-    std::cout << "wrong" << std::endl;
-  else
-    std::cout << "ok" << std::endl;
+  if (!result.histogram_cumsum.empty()) {
+    std::cout << "scan:" << std::dec << std::endl;
+    for (int i = 0; i < 4; i++) {
+      std::cout << "pass " << i << ":" << std::endl;
+      for (int j = 0; j < RADIX; j++)
+        std::cout << result.histogram_cumsum[i * RADIX + j] << ' ';
+      std::cout << std::endl;
+    }
+  }
+
+  // sort steps
+  {
+    std::cout << "vulkan sort steps" << std::endl;
+    result = vulkan_benchmark.SortSteps(keys);
+
+    for (int i = 0; i < 4; i++) {
+      std::cout << "pass " << i << ":" << std::endl;
+      std::cout << std::hex;
+      for (int j = 0; j < result.keys[i].size() && j < 16; j++)
+        std::cout << std::setfill('0') << std::setw(8) << result.keys[i][j]
+                  << " ";
+      std::cout << std::dec << std::endl;
+    }
+
+    bool wrong = false;
+    for (int j = 1; j < result.keys[3].size(); j++) {
+      if (result.keys[3][j - 1] > result.keys[3][j]) {
+        wrong = true;
+        break;
+      }
+    }
+
+    if (wrong)
+      std::cout << "wrong" << std::endl;
+    else
+      std::cout << "ok" << std::endl;
+  }
+
+  // sort
+  {
+    std::cout << "vulkan sort" << std::endl;
+    result = vulkan_benchmark.Sort(keys);
+
+    std::cout << "pass 3:" << std::endl;
+    std::cout << std::hex;
+    for (int j = 0; j < result.keys[3].size() && j < 16; j++)
+      std::cout << std::setfill('0') << std::setw(8) << result.keys[3][j]
+                << " ";
+    std::cout << std::dec << std::endl;
+
+    bool wrong = false;
+    for (int j = 1; j < result.keys[3].size(); j++) {
+      if (result.keys[3][j - 1] > result.keys[3][j]) {
+        wrong = true;
+        break;
+      }
+    }
+
+    if (wrong)
+      std::cout << "wrong" << std::endl;
+    else
+      std::cout << "ok" << std::endl;
+  }
 
   return 0;
 }

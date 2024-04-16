@@ -19,7 +19,11 @@ void vxDestroySorter(VxSorter sorter);
 void vxGetSorterBufferSize(uint32_t maxElementCount, VkDeviceSize* size);
 
 void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
-                    uint32_t elementCount);
+                    uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
+                    VkBuffer histogramBuffer, VkDeviceSize histogramOffset,
+                    VkBuffer scanBuffer, VkDeviceSize scanOffset,
+                    VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
+                    VkBuffer outBuffer, VkDeviceSize outOffset);
 
 void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
                                    VxSorter sorter, uint32_t elementCount,
