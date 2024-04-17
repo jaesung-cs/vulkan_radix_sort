@@ -13,7 +13,7 @@
 namespace {
 
 constexpr uint32_t RADIX = 256;
-constexpr uint32_t PARTITION_SIZE = 7680;
+constexpr uint32_t PARTITION_SIZE = 8 * 512;
 
 uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 
@@ -475,6 +475,8 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
   writes[5].pBufferInfo = &descriptorBuffers[2];
 
   vkUpdateDescriptorSets(layout->device, writes.size(), writes.data(), 0, NULL);
+
+  // TODO: pipeline barrier between previous command, since storage is shared.
 
   if (queryPool) {
     vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
