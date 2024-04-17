@@ -2,7 +2,7 @@
 #include <iomanip>
 
 #include "data_generator.h"
-#include "cuda_benchmark_base.h"
+#include "cpu_benchmark_base.h"
 #include "vulkan_benchmark_base.h"
 
 int main() {
@@ -18,41 +18,57 @@ int main() {
   }
   std::cout << std::dec << std::endl;
 
-  CudaBenchmarkBase cuda_benchmark;
+  CpuBenchmarkBase cpu_benchmark;
   VulkanBenchmarkBase vulkan_benchmark;
 
   // histogram
-  std::cout << "vulkan global histogram" << std::endl;
-  auto result = vulkan_benchmark.GlobalHistogram(keys);
+  {
+    std::cout << "================ global histogram ================"
+              << std::endl;
+    std::cout << "cpu global histogram" << std::endl;
+    auto result0 = cpu_benchmark.GlobalHistogram(keys);
+    std::cout << "vulkan global histogram" << std::endl;
+    auto result1 = vulkan_benchmark.GlobalHistogram(keys);
 
-  constexpr uint32_t RADIX = 256;
-  if (!result.histogram.empty()) {
-    std::cout << "histogram:" << std::endl;
+    constexpr uint32_t RADIX = 256;
     for (int i = 0; i < 4; i++) {
-      std::cout << "pass " << i << ":" << std::endl;
-      for (int j = 0; j < RADIX; j++)
-        std::cout << result.histogram[i * RADIX + j] << ' ';
-      std::cout << std::endl;
+      bool diff = false;
+      for (int j = 0; j < RADIX; j++) {
+        if (result0.histogram[j] != result1.histogram[j]) {
+          diff = true;
+          break;
+        }
+      }
+      if (diff) {
+        std::cout << "pass " << i << ":" << std::endl;
+        for (int j = 0; j < RADIX; j++)
+          std::cout << result0.histogram[i * RADIX + j] << ' ';
+        std::cout << std::endl;
+        for (int j = 0; j < RADIX; j++)
+          std::cout << result0.histogram[i * RADIX + j] << ' ';
+        std::cout << std::endl;
+      }
     }
   }
 
   // sort steps
   {
+    std::cout << "================ sort steps ================" << std::endl;
     std::cout << "vulkan sort steps" << std::endl;
-    result = vulkan_benchmark.SortSteps(keys);
+    auto result1 = vulkan_benchmark.SortSteps(keys);
 
     for (int i = 0; i < 4; i++) {
       std::cout << "pass " << i << ":" << std::endl;
       std::cout << std::hex;
-      for (int j = 0; j < result.keys[i].size() && j < 16; j++)
-        std::cout << std::setfill('0') << std::setw(8) << result.keys[i][j]
+      for (int j = 0; j < result1.keys[i].size() && j < 16; j++)
+        std::cout << std::setfill('0') << std::setw(8) << result1.keys[i][j]
                   << " ";
       std::cout << std::dec << std::endl;
     }
 
     bool wrong = false;
-    for (int j = 1; j < result.keys[3].size(); j++) {
-      if (result.keys[3][j - 1] > result.keys[3][j]) {
+    for (int j = 1; j < result1.keys[3].size(); j++) {
+      if (result1.keys[3][j - 1] > result1.keys[3][j]) {
         wrong = true;
         break;
       }
@@ -66,28 +82,31 @@ int main() {
 
   // sort
   {
+    std::cout << "================ sort ================" << std::endl;
+    std::cout << "cpu sort" << std::endl;
+    auto result0 = cpu_benchmark.Sort(keys);
     std::cout << "vulkan sort" << std::endl;
-    result = vulkan_benchmark.Sort(keys);
+    auto result1 = vulkan_benchmark.Sort(keys);
 
-    std::cout << "pass 3:" << std::endl;
-    std::cout << std::hex;
-    for (int j = 0; j < result.keys[3].size() && j < 16; j++)
-      std::cout << std::setfill('0') << std::setw(8) << result.keys[3][j]
-                << " ";
-    std::cout << std::dec << std::endl;
-
-    bool wrong = false;
-    for (int j = 1; j < result.keys[3].size(); j++) {
-      if (result.keys[3][j - 1] > result.keys[3][j]) {
-        wrong = true;
+    bool diff = false;
+    for (int j = 0; j < result0.keys[3].size(); j++) {
+      if (result0.keys[3][j] != result1.keys[3][j]) {
+        diff = true;
         break;
       }
     }
 
-    if (wrong)
+    if (diff) {
       std::cout << "wrong" << std::endl;
-    else
+      std::cout << "pass 3:" << std::endl;
+      std::cout << std::hex;
+      for (int j = 0; j < result1.keys[3].size() && j < 16; j++)
+        std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
+                  << " ";
+      std::cout << std::dec << std::endl;
+    } else {
       std::cout << "ok" << std::endl;
+    }
   }
 
   return 0;

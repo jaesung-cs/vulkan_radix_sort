@@ -27,6 +27,7 @@ target_link_libraries(vk_radix_sort
 # bench
 add_executable(bench
   bench/bench.cc
+  bench/cpu_benchmark_base.cc
   bench/cuda_benchmark_base.cu
   bench/data_generator.cc
   bench/vma_impl.cc
