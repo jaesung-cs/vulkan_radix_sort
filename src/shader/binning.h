@@ -47,11 +47,12 @@ layout (set = 1, binding = 1) writeonly buffer OutKeys {
 #define GLOBAL_SUM 0x3
 
 shared uint partitionIndex;
+
+// TODO: reduce shared memory with aliasing
 shared uint localHistogram[RADIX * 16];  // (R, S)
 shared uint sharedKeys[PARTITION_SIZE];  // (P)
 shared int localHistogramSum[RADIX];  // (R)
-shared uint scanIntermediate[RADIX * MAX_SUBGROUP_COUNT / 32];
-shared uint scanIntermediate2[RADIX * MAX_SUBGROUP_COUNT / 32 / 32];
+shared uint scanIntermediate[RADIX * MAX_SUBGROUP_COUNT / (32 - 1)];  // 1/n + 1/n^2 + ... < 1/(n-1)
 
 // returns 0b00000....11111, where msb is id-1.
 uvec4 GetExclusiveSubgroupMask(uint id) {
@@ -66,14 +67,6 @@ uvec4 GetExclusiveSubgroupMask(uint id) {
 uint GetBitCount(uvec4 value) {
   uvec4 result = bitCount(value);
   return result[0] + result[1] + result[2] + result[3];
-}
-
-uint GetLSB(uvec4 value) {
-  if (value[0] != 0) return findLSB(value[0]);
-  if (value[1] != 0) return 32 + findLSB(value[1]);
-  if (value[2] != 0) return 64 + findLSB(value[2]);
-  if (value[3] != 0) return 96 + findLSB(value[3]);
-  return -1;
 }
 
 void main() {
@@ -146,28 +139,30 @@ void main() {
   barrier();
 
   // local histogram reduce 128
-  if (index < RADIX * gl_NumSubgroups / gl_SubgroupSize) {
+  uint intermediateOffset0 = RADIX * gl_NumSubgroups / gl_SubgroupSize;
+  if (index < intermediateOffset0) {
     uint v = scanIntermediate[index];
     uint sum = subgroupAdd(v);
     uint excl = subgroupExclusiveAdd(v);
     scanIntermediate[index] = excl;
     if (threadIndex == 0) {
-      scanIntermediate2[index / gl_SubgroupSize] = sum;
+      scanIntermediate[intermediateOffset0 + index / gl_SubgroupSize] = sum;
     }
   }
   barrier();
 
   // local histogram reduce 4
-  if (index < RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize) {
-    uint v = scanIntermediate2[index];
+  uint intermediateOffset1 = RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize;
+  if (index < intermediateOffset1) {
+    uint v = scanIntermediate[intermediateOffset0 + index];
     uint excl = subgroupExclusiveAdd(v);
-    scanIntermediate2[index] = excl;
+    scanIntermediate[intermediateOffset0 + index] = excl;
   }
   barrier();
 
   // local histogram add 128
-  if (index < RADIX * gl_NumSubgroups / gl_SubgroupSize) {
-    scanIntermediate[index] += scanIntermediate2[index / gl_SubgroupSize];
+  if (index < intermediateOffset0) {
+    scanIntermediate[index] += scanIntermediate[intermediateOffset0 + index / gl_SubgroupSize];
   }
   barrier();
 
