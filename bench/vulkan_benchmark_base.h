@@ -14,6 +14,11 @@ class VulkanBenchmarkBase {
   struct IntermediateResults {
     std::vector<uint32_t> histogram;
     std::vector<uint32_t> keys[4];
+
+    uint64_t total_time = 0;
+    uint64_t histogram_time = 0;
+    uint64_t scan_time = 0;
+    std::vector<uint64_t> binning_times;
   };
 
  public:
@@ -36,6 +41,7 @@ class VulkanBenchmarkBase {
   VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
   VxSorter sorter_ = VK_NULL_HANDLE;
+  VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
   static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 24;
   static constexpr uint32_t PARTITION_SIZE = 7680;

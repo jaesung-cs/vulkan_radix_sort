@@ -165,6 +165,13 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
   vkCreateFence(device_, &fence_info, NULL, &fence_);
 
+  // timestamp query pool
+  VkQueryPoolCreateInfo query_pool_info = {
+      VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+  query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  query_pool_info.queryCount = 8;
+  vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
+
   // sorter
   VxSorterCreateInfo sorter_info = {};
   sorter_info.device = device_;
@@ -245,6 +252,7 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
   vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
   vxDestroySorter(sorter_);
+  vkDestroyQueryPool(device_, query_pool_, NULL);
   vkDestroyFence(device_, fence_, NULL);
   vkDestroyCommandPool(device_, command_pool_, NULL);
   vmaDestroyAllocator(allocator_);
@@ -423,6 +431,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
+  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, 8);
+
   // copy to keys buffer
   VkBufferCopy region = {};
   region.srcOffset = 0;
@@ -446,8 +456,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
   vxCmdRadixSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-                 histogram_.buffer, 0, lookback_.buffer, 0, out_keys_.buffer,
-                 0);
+                 histogram_.buffer, 0, lookback_.buffer, 0, out_keys_.buffer, 0,
+                 query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -480,9 +490,22 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
+  std::vector<uint64_t> timestamps(8);
+  vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
+                        timestamps.size() * sizeof(uint64_t), timestamps.data(),
+                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+
   IntermediateResults result;
   result.keys[3].resize(element_count);
   std::memcpy(result.keys[3].data(), staging_.map,
               element_count * sizeof(uint32_t));
+  result.total_time = timestamps[7] - timestamps[0];
+  result.histogram_time = timestamps[1] - timestamps[0];
+  result.scan_time = timestamps[2] - timestamps[1];
+  result.binning_times.resize(4);
+  result.binning_times[0] = timestamps[3] - timestamps[2];
+  result.binning_times[1] = timestamps[4] - timestamps[3];
+  result.binning_times[2] = timestamps[5] - timestamps[4];
+  result.binning_times[3] = timestamps[6] - timestamps[5];
   return result;
 }

@@ -309,7 +309,8 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                     uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
                     VkBuffer histogramBuffer, VkDeviceSize histogramOffset,
                     VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
-                    VkBuffer outBuffer, VkDeviceSize outOffset) {
+                    VkBuffer outBuffer, VkDeviceSize outOffset,
+                    VkQueryPool queryPool, uint32_t query) {
   uint32_t commandIndex = sorter->commandIndex;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
   VkDescriptorSet inOutDescriptor = sorter->inOutDescriptors[commandIndex];
@@ -387,7 +388,12 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
 
   vkUpdateDescriptorSets(sorter->device, writes.size(), writes.data(), 0, NULL);
 
-  // fill command
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         queryPool, query + 0);
+  }
+
+  // clear histogram
   vkCmdFillBuffer(commandBuffer, histogramBuffer, histogramOffset,
                   HistogramByteSize(), 0);
 
@@ -423,6 +429,11 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
 
   vkCmdDispatch(commandBuffer, RoundUp(elementCount, WORKGROUP_SIZE), 1, 1);
 
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         queryPool, query + 1);
+  }
+
   // scan
   bufferMemoryBarriers.resize(1);
   bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -442,6 +453,11 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                     sorter->scanPipeline);
 
   vkCmdDispatch(commandBuffer, 1, 1, 1);
+
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         queryPool, query + 2);
+  }
 
   // binning passes
   bufferMemoryBarriers.resize(1);
@@ -497,6 +513,12 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
 
     vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
 
+    if (queryPool) {
+      vkCmdWriteTimestamp2(commandBuffer,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, queryPool,
+                           query + 3 + i);
+    }
+
     if (i < 3) {
       bufferMemoryBarriers.resize(3);
 
@@ -538,6 +560,11 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
       dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
       vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
     }
+  }
+
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         queryPool, query + 7);
   }
 
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
@@ -582,7 +609,7 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
 
   vkUpdateDescriptorSets(sorter->device, writes.size(), writes.data(), 0, NULL);
 
-  // fill command
+  // clear histogram
   vkCmdFillBuffer(commandBuffer, histogramBuffer, histogramOffset,
                   HistogramByteSize(), 0);
 

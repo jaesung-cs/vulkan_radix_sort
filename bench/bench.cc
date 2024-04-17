@@ -88,6 +88,26 @@ int main() {
     std::cout << "vulkan sort" << std::endl;
     auto result1 = vulkan_benchmark.Sort(keys);
 
+    std::cout << "total time: " << static_cast<double>(result1.total_time) / 1e6
+              << "ms" << std::endl;
+    std::cout << "histogram time: "
+              << static_cast<double>(result1.histogram_time) / 1e6 << "ms"
+              << std::endl;
+    std::cout << "scan time: " << static_cast<double>(result1.scan_time) / 1e6
+              << "ms" << std::endl;
+    std::cout << "binning0 time: "
+              << static_cast<double>(result1.binning_times[0]) / 1e6 << "ms"
+              << std::endl;
+    std::cout << "binning1 time: "
+              << static_cast<double>(result1.binning_times[1]) / 1e6 << "ms"
+              << std::endl;
+    std::cout << "binning2 time: "
+              << static_cast<double>(result1.binning_times[2]) / 1e6 << "ms"
+              << std::endl;
+    std::cout << "binning3 time: "
+              << static_cast<double>(result1.binning_times[3]) / 1e6 << "ms"
+              << std::endl;
+
     bool diff = false;
     for (int j = 0; j < result0.keys[3].size(); j++) {
       if (result0.keys[3][j] != result1.keys[3][j]) {
