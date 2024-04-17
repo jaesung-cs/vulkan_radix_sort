@@ -3,20 +3,40 @@
 
 #include <vulkan/vulkan.h>
 
+#include "vk_mem_alloc.h"
+
+struct VxSorterLayout_T;
 struct VxSorter_T;
 
+/**
+ * VxSorterLayout creates shared resources, such as pipelines.
+ */
+VK_DEFINE_HANDLE(VxSorterLayout)
+
+/**
+ * VxSorter creates resources per command, such as buffer and descriptor sets.
+ */
 VK_DEFINE_HANDLE(VxSorter)
 
-struct VxSorterCreateInfo {
+struct VxSorterLayoutCreateInfo {
   VkDevice device;
+};
+
+struct VxSorterCreateInfo {
+  VxSorterLayout sorterLayout;
+  VmaAllocator allocator;
+  uint32_t maxElementCount;
   uint32_t maxCommandsInFlight;
 };
+
+void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
+                          VxSorterLayout* pSorterLayout);
+
+void vxDestroySorterLayout(VxSorterLayout sorterLayout);
 
 void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter);
 
 void vxDestroySorter(VxSorter sorter);
-
-void vxGetSorterBufferSize(uint32_t maxElementCount, VkDeviceSize* size);
 
 /**
  * if queryPool is not VK_NULL_HANDLE, it writes timestamps to 8 entries
@@ -32,31 +52,6 @@ void vxGetSorterBufferSize(uint32_t maxElementCount, VkDeviceSize* size);
  */
 void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                     uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
-                    VkBuffer histogramBuffer, VkDeviceSize histogramOffset,
-                    VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
-                    VkBuffer outBuffer, VkDeviceSize outOffset,
                     VkQueryPool queryPool, uint32_t query);
-
-void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
-                                   VxSorter sorter, uint32_t elementCount,
-                                   VkBuffer buffer, VkDeviceSize offset,
-                                   VkBuffer histogramBuffer,
-                                   VkDeviceSize histogramOffset);
-
-void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
-                                       VxSorter sorter,
-                                       VkBuffer histogramBuffer,
-                                       VkDeviceSize histogramOffset);
-
-/**
- * pass: 0, 1, 2, or 3.
- */
-void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
-                           uint32_t elementCount, uint32_t pass,
-                           VkBuffer buffer, VkDeviceSize offset,
-                           VkBuffer histogramBuffer,
-                           VkDeviceSize histogramOffset,
-                           VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
-                           VkBuffer outBuffer, VkDeviceSize outOffset);
 
 #endif  // VK_RADIX_SORT_H

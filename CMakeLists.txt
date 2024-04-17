@@ -20,7 +20,7 @@ target_include_directories(vk_radix_sort
 )
 
 target_link_libraries(vk_radix_sort
-  PUBLIC Vulkan::Vulkan
+  PUBLIC Vulkan::Vulkan VulkanMemoryAllocator
   PRIVATE Vulkan::shaderc_combined
 )
 
@@ -33,4 +33,4 @@ add_executable(bench
   bench/vma_impl.cc
   bench/vulkan_benchmark_base.cc
 )
-target_link_libraries(bench PRIVATE vk_radix_sort VulkanMemoryAllocator)
+target_link_libraries(bench PRIVATE vk_radix_sort)

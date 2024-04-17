@@ -25,8 +25,6 @@ class VulkanBenchmarkBase {
   VulkanBenchmarkBase();
   ~VulkanBenchmarkBase();
 
-  IntermediateResults GlobalHistogram(const std::vector<uint32_t>& keys);
-  IntermediateResults SortSteps(const std::vector<uint32_t>& keys);
   IntermediateResults Sort(const std::vector<uint32_t>& keys);
 
  private:
@@ -40,6 +38,7 @@ class VulkanBenchmarkBase {
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
+  VxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
   VxSorter sorter_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
@@ -52,9 +51,6 @@ class VulkanBenchmarkBase {
     uint8_t* map = nullptr;
   };
   Buffer keys_;
-  Buffer out_keys_;
-  Buffer histogram_;
-  Buffer lookback_;
   Buffer staging_;
 };
 
