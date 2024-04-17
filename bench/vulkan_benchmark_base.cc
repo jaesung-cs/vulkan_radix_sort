@@ -106,8 +106,12 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   }
 
   // features
+  VkPhysicalDeviceMaintenance4Features maintenance_4_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES};
+
   VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+  synchronization_2_features.pNext = &maintenance_4_features;
 
   VkPhysicalDeviceFeatures2 features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
@@ -175,6 +179,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   // sorter
   VxSorterLayoutCreateInfo sorter_layout_info = {};
   sorter_layout_info.device = device_;
+  sorter_layout_info.histogramWorkgroupSize = 1024;
   vxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
 
   VxSorterCreateInfo sorter_info = {};

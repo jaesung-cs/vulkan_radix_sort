@@ -48,10 +48,9 @@ layout (set = 1, binding = 1) writeonly buffer OutKeys {
 
 shared uint partitionIndex;
 
-// TODO: reduce shared memory with aliasing
-shared uint localHistogram[RADIX * 16];  // (R, S)
-shared uint sharedKeys[PARTITION_SIZE];  // (P)
+shared uint localHistogram[PARTITION_SIZE];  // (R, S=16), or (P) for alias.
 shared int localHistogramSum[RADIX];  // (R)
+// TODO: further alias scan intermediate
 shared uint scanIntermediate[RADIX * MAX_SUBGROUP_COUNT / (32 - 1)];  // 1/n + 1/n^2 + ... < 1/(n-1)
 
 // returns 0b00000....11111, where msb is id-1.
@@ -195,12 +194,6 @@ void main() {
   }
   barrier();
 
-  // rearrange keys, reuse shared memory
-  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
-    sharedKeys[localOffsets[i]] = localKeys[i];
-  }
-  barrier();
-
   // inclusive sum with lookback
   if (index < RADIX) {
     if (partitionIndex == 0) {
@@ -236,9 +229,15 @@ void main() {
   }
   barrier();
 
+  // rearrange keys. now localHistogram is unused, so alias memory.
+  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
+    localHistogram[localOffsets[i]] = localKeys[i];
+  }
+  barrier();
+
   // binning
   for (uint i = index; i < PARTITION_SIZE; i += WORKGROUP_SIZE) {
-    uint key = sharedKeys[i];
+    uint key = localHistogram[i];
     uint radix = bitfieldExtract(key, pass * 8, 8);
     uint dstOffset = histogram[RADIX * pass + radix] + localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {

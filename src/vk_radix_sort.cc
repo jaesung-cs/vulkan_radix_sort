@@ -14,7 +14,6 @@ namespace {
 
 constexpr uint32_t RADIX = 256;
 constexpr uint32_t PARTITION_SIZE = 7680;
-constexpr uint32_t WORKGROUP_SIZE = 512;
 
 uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 
@@ -95,6 +94,8 @@ struct VxSorterLayout_T {
   VkPipeline histogramPipeline = VK_NULL_HANDLE;
   VkPipeline scanPipeline = VK_NULL_HANDLE;
   VkPipeline binningPipeline = VK_NULL_HANDLE;
+
+  uint32_t histogramWorkgroupSize = 0;
 };
 
 struct VxSorter_T {
@@ -124,6 +125,11 @@ struct PushConstants {
 void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
                           VxSorterLayout* pSorterLayout) {
   VkDevice device = pCreateInfo->device;
+
+  // shader specialization constants and defaults
+  uint32_t histogramWorkgroupSize = 1024;
+  if (pCreateInfo->histogramWorkgroupSize != 0)
+    histogramWorkgroupSize = pCreateInfo->histogramWorkgroupSize;
 
   // descriptor set layouts
   VkDescriptorSetLayout storageDescriptorSetLayout;
@@ -199,6 +205,17 @@ void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
     VkShaderModule pipelineModule =
         CreateShaderModule(device, VK_SHADER_STAGE_COMPUTE_BIT, histogram_comp);
 
+    VkSpecializationMapEntry mapEntry = {};
+    mapEntry.constantID = 0;
+    mapEntry.offset = 0;
+    mapEntry.size = sizeof(histogramWorkgroupSize);
+
+    VkSpecializationInfo specializationInfo = {};
+    specializationInfo.mapEntryCount = 1;
+    specializationInfo.pMapEntries = &mapEntry;
+    specializationInfo.dataSize = sizeof(histogramWorkgroupSize);
+    specializationInfo.pData = &histogramWorkgroupSize;
+
     VkComputePipelineCreateInfo pipelineInfo = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfo.stage.sType =
@@ -206,6 +223,7 @@ void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     pipelineInfo.stage.module = pipelineModule;
     pipelineInfo.stage.pName = "main";
+    pipelineInfo.stage.pSpecializationInfo = &specializationInfo;
     pipelineInfo.layout = pipelineLayout;
 
     vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
@@ -262,6 +280,7 @@ void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
   (*pSorterLayout)->histogramPipeline = histogramPipeline;
   (*pSorterLayout)->scanPipeline = scanPipeline;
   (*pSorterLayout)->binningPipeline = binningPipeline;
+  (*pSorterLayout)->histogramWorkgroupSize = histogramWorkgroupSize;
 }
 
 void vxDestroySorterLayout(VxSorterLayout sorterLayout) {
@@ -495,7 +514,8 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                           layout->pipelineLayout, 0, descriptors.size(),
                           descriptors.data(), 0, nullptr);
 
-  vkCmdDispatch(commandBuffer, RoundUp(elementCount, WORKGROUP_SIZE), 1, 1);
+  vkCmdDispatch(commandBuffer,
+                RoundUp(elementCount, layout->histogramWorkgroupSize), 1, 1);
 
   if (queryPool) {
     vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,

@@ -20,6 +20,13 @@ VK_DEFINE_HANDLE(VxSorter)
 
 struct VxSorterLayoutCreateInfo {
   VkDevice device;
+
+  /**
+   * leave it 0 for default=1024.
+   * try 256, 512, or 1024.
+   * 1024 gives best result, but may depend on device properties.
+   */
+  uint32_t histogramWorkgroupSize;
 };
 
 struct VxSorterCreateInfo {

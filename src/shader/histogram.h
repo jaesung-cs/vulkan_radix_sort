@@ -5,9 +5,8 @@ const char* histogram_comp = R"shader(
 #version 460 core
 
 const uint RADIX = 256;
-const uint WORKGROUP_SIZE = 512;
 
-layout (local_size_x = WORKGROUP_SIZE) in;
+layout (local_size_x_id = 0) in;
 
 layout (push_constant) uniform PushConstant {
   uint elementCount;
@@ -28,7 +27,7 @@ void main() {
   uint globalIndex = gl_GlobalInvocationID.x;
 
   // set local histogram zero
-  for (uint i = localIndex; i < 4 * RADIX; i += WORKGROUP_SIZE) {
+  for (uint i = localIndex; i < 4 * RADIX; i += gl_WorkGroupSize.x) {
     localHistogram[i] = 0;
   }
   barrier();
@@ -49,7 +48,7 @@ void main() {
   barrier();
 
   // local histogram to global histogram
-  for (uint i = localIndex; i < 4 * RADIX; i += WORKGROUP_SIZE) {
+  for (uint i = localIndex; i < 4 * RADIX; i += gl_WorkGroupSize.x) {
     atomicAdd(histogram[i], localHistogram[i]);
   }
 }
