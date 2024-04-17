@@ -56,7 +56,9 @@ int main() {
   }
 
   if (diff) {
+    std::cout << std::endl;
     std::cout << "wrong" << std::endl;
+    std::cout << std::endl;
     std::cout << "pass 3:" << std::endl;
     std::cout << std::hex;
     for (int j = 0; j < result1.keys[3].size() && j < 16; j++)
@@ -64,7 +66,9 @@ int main() {
                 << " ";
     std::cout << std::dec << std::endl;
   } else {
+    std::cout << std::endl;
     std::cout << "ok" << std::endl;
+    std::cout << std::endl;
   }
 
   return 0;

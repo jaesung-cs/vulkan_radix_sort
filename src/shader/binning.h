@@ -42,9 +42,9 @@ layout (set = 1, binding = 1) writeonly buffer OutKeys {
   uint outKeys[];  // (N)
 };
 
-// Onesweep lookback status. 0x3 = 0b11 for GLOBAL_SUM, for |(or) operator.
-#define LOCAL_COUNT 0x1
-#define GLOBAL_SUM 0x3
+// Onesweep lookback status. 0xc = 0b1100 for GLOBAL_SUM, for |(or) operator.
+#define LOCAL_COUNT 0x40000000u
+#define GLOBAL_SUM 0xc0000000u
 
 shared uint partitionIndex;
 
@@ -55,9 +55,9 @@ shared uint localHistogramSum[RADIX];
 uvec4 GetExclusiveSubgroupMask(uint id) {
   return uvec4(
     (1 << id) - 1,
-    id < 32 ? 0 : (1 << (id - 32)) - 1,
-    id < 64 ? 0 : (1 << (id - 64)) - 1,
-    id < 96 ? 0 : (1 << (id - 96)) - 1
+    (1 << (id - 32)) - 1,
+    (1 << (id - 64)) - 1,
+    (1 << (id - 96)) - 1
   );
 }
 
@@ -86,6 +86,7 @@ void main() {
 
   // load from global memory, local histogram and offset
   uint localKeys[WORKGROUP_COUNT];
+  uint localRadix[WORKGROUP_COUNT];
   uint localOffsets[WORKGROUP_COUNT];
   uint subgroupHistogram[WORKGROUP_COUNT];
   for (int i = 0; i < WORKGROUP_COUNT; ++i) {
@@ -94,6 +95,7 @@ void main() {
     localKeys[i] = key;
 
     uint radix = bitfieldExtract(key, pass * 8, 8);
+    localRadix[i] = radix;
 
     // mask per digit
     uvec4 mask = subgroupBallot(true);
@@ -148,8 +150,8 @@ void main() {
   barrier();
 
   // local histogram reduce 4
-  uint intermediateOffset1 = RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize;
-  if (index < intermediateOffset1) {
+  uint intermediateSize1 = RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize;
+  if (index < intermediateSize1) {
     uint v = localHistogramSum[intermediateOffset0 + index];
     uint excl = subgroupExclusiveAdd(v);
     localHistogramSum[intermediateOffset0 + index] = excl;
@@ -170,8 +172,7 @@ void main() {
 
   // post-scan stage
   for (int i = 0; i < WORKGROUP_COUNT; ++i) {
-    uint key = localKeys[i];
-    uint radix = bitfieldExtract(key, pass * 8, 8);
+    uint radix = localRadix[i];
     localOffsets[i] += localHistogram[gl_NumSubgroups * radix + subgroupIndex];
 
     barrier();
@@ -185,7 +186,8 @@ void main() {
   // update lookback
   uint localCount = 0;
   if (index < RADIX) {
-    localCount = localHistogram[gl_NumSubgroups * (index + 1) - 1];
+    uint v = localHistogram[gl_NumSubgroups * (index + 1) - 1];
+    localCount = v;
     if (index > 0) {
       localCount -= localHistogram[gl_NumSubgroups * index - 1];
     }
@@ -193,25 +195,25 @@ void main() {
     // inclusive sum with lookback
     uint globalHistogram = histogram[RADIX * pass + index];
     if (partitionIndex == 0) {
-      lookback[RADIX * partitionIndex + index] = localCount | (GLOBAL_SUM << 30);
-      localHistogramSum[index] = int(globalHistogram) + int(localCount) - int(localHistogram[gl_NumSubgroups * (index + 1) - 1]);
+      lookback[RADIX * partitionIndex + index] = GLOBAL_SUM | localCount;
+      localHistogramSum[index] = int(globalHistogram) + int(localCount) - int(v);
     } else {
-      lookback[RADIX * partitionIndex + index] = localCount | (LOCAL_COUNT << 30);
+      lookback[RADIX * partitionIndex + index] = LOCAL_COUNT | localCount;
 
       // lookback
       uint globalSum = localCount;
       int lookbackIndex = int(partitionIndex) - 1;
       while (lookbackIndex >= 0) {
         uint lookbackValue = lookback[RADIX * lookbackIndex + index];
-        uint status = bitfieldExtract(lookbackValue, 30, 2);
 
-        if (status == GLOBAL_SUM) {
-          globalSum += bitfieldExtract(lookbackValue, 0, 30);
+        if ((lookbackValue & GLOBAL_SUM) == GLOBAL_SUM) {
+          // allow overflow in status positions. will be stored with OR operator, and removed to get value
+          globalSum += lookbackValue;
           break;
         }
 
-        else if (status == LOCAL_COUNT) {
-          globalSum += bitfieldExtract(lookbackValue, 0, 30);
+        else if ((lookbackValue & GLOBAL_SUM) == LOCAL_COUNT) {
+          globalSum += lookbackValue;
           lookbackIndex--;
         }
 
@@ -219,10 +221,10 @@ void main() {
       }
 
       // update global sum
-      lookback[RADIX * partitionIndex + index] = globalSum | (GLOBAL_SUM << 30);
+      lookback[RADIX * partitionIndex + index] = GLOBAL_SUM | globalSum;
 
       // store exclusive sum
-      localHistogramSum[index] = int(globalHistogram) + int(globalSum) - int(localHistogram[gl_NumSubgroups * (index + 1) - 1]);
+      localHistogramSum[index] = int(globalHistogram) + int(globalSum & ~GLOBAL_SUM) - int(v);
     }
   }
   barrier();
