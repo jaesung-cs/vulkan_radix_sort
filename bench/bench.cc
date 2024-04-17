@@ -45,7 +45,7 @@ int main() {
           std::cout << result0.histogram[i * RADIX + j] << ' ';
         std::cout << std::endl;
         for (int j = 0; j < RADIX; j++)
-          std::cout << result0.histogram[i * RADIX + j] << ' ';
+          std::cout << result1.histogram[i * RADIX + j] << ' ';
         std::cout << std::endl;
       }
     }

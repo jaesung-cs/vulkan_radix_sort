@@ -21,21 +21,37 @@ layout (set = 1, binding = 0) readonly buffer Keys {
   uint keys[];  // (N)
 };
 
+shared uint localHistogram[4 * RADIX];  // (4, R)
+
 void main() {
-  uint index = gl_GlobalInvocationID.x;
-  if (index >= elementCount) return;
+  uint localIndex = gl_LocalInvocationID.x;
+  uint globalIndex = gl_GlobalInvocationID.x;
 
-  uint key = keys[index];
-  uint key0 = bitfieldExtract(key, 0, 8);
-  uint key1 = bitfieldExtract(key, 8, 8);
-  uint key2 = bitfieldExtract(key, 16, 8);
-  uint key3 = bitfieldExtract(key, 24, 8);
+  // set local histogram zero
+  for (uint i = localIndex; i < 4 * RADIX; i += WORKGROUP_SIZE) {
+    localHistogram[i] = 0;
+  }
+  barrier();
 
-  // TODO: use shared memory for atomic counter
-  atomicAdd(histogram[RADIX * 0 + key0], 1);
-  atomicAdd(histogram[RADIX * 1 + key1], 1);
-  atomicAdd(histogram[RADIX * 2 + key2], 1);
-  atomicAdd(histogram[RADIX * 3 + key3], 1);
+  // load key, add to local histogram
+  if (globalIndex < elementCount) {
+    uint key = keys[globalIndex];
+    uint key0 = bitfieldExtract(key, 0, 8);
+    uint key1 = bitfieldExtract(key, 8, 8);
+    uint key2 = bitfieldExtract(key, 16, 8);
+    uint key3 = bitfieldExtract(key, 24, 8);
+
+    atomicAdd(localHistogram[RADIX * 0 + key0], 1);
+    atomicAdd(localHistogram[RADIX * 1 + key1], 1);
+    atomicAdd(localHistogram[RADIX * 2 + key2], 1);
+    atomicAdd(localHistogram[RADIX * 3 + key3], 1);
+  }
+  barrier();
+
+  // local histogram to global histogram
+  for (uint i = localIndex; i < 4 * RADIX; i += WORKGROUP_SIZE) {
+    atomicAdd(histogram[i], localHistogram[i]);
+  }
 }
 
 )shader";
