@@ -110,7 +110,7 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
   // descriptor set layouts
   VkDescriptorSetLayout storageDescriptorSetLayout;
   {
-    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings(3);
+    std::vector<VkDescriptorSetLayoutBinding> descriptorSetLayoutBindings(2);
     descriptorSetLayoutBindings[0] = {};
     descriptorSetLayoutBindings[0].binding = 0;
     descriptorSetLayoutBindings[0].descriptorType =
@@ -124,13 +124,6 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorSetLayoutBindings[1].descriptorCount = 1;
     descriptorSetLayoutBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    descriptorSetLayoutBindings[2] = {};
-    descriptorSetLayoutBindings[2].binding = 2;
-    descriptorSetLayoutBindings[2].descriptorType =
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    descriptorSetLayoutBindings[2].descriptorCount = 1;
-    descriptorSetLayoutBindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = {
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -315,7 +308,6 @@ void vxDestroySorter(VxSorter sorter) {
 void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                     uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
                     VkBuffer histogramBuffer, VkDeviceSize histogramOffset,
-                    VkBuffer scanBuffer, VkDeviceSize scanOffset,
                     VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
                     VkBuffer outBuffer, VkDeviceSize outOffset) {
   uint32_t commandIndex = sorter->commandIndex;
@@ -327,28 +319,24 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
   uint32_t partitionCount = RoundUp(elementCount, PARTITION_SIZE);
 
   // write descriptors
-  std::vector<VkDescriptorBufferInfo> descriptorBuffers(5);
+  std::vector<VkDescriptorBufferInfo> descriptorBuffers(4);
   descriptorBuffers[0].buffer = histogramBuffer;
   descriptorBuffers[0].offset = histogramOffset;
   descriptorBuffers[0].range = HistogramByteSize();
 
-  descriptorBuffers[1].buffer = scanBuffer;
-  descriptorBuffers[1].offset = scanOffset;
-  descriptorBuffers[1].range = HistogramByteSize();
+  descriptorBuffers[1].buffer = lookbackBuffer;
+  descriptorBuffers[1].offset = lookbackOffset;
+  descriptorBuffers[1].range = lookbackBufferSize;
 
-  descriptorBuffers[2].buffer = lookbackBuffer;
-  descriptorBuffers[2].offset = lookbackOffset;
-  descriptorBuffers[2].range = lookbackBufferSize;
+  descriptorBuffers[2].buffer = buffer;
+  descriptorBuffers[2].offset = offset;
+  descriptorBuffers[2].range = inoutBufferSize;
 
-  descriptorBuffers[3].buffer = buffer;
-  descriptorBuffers[3].offset = offset;
+  descriptorBuffers[3].buffer = outBuffer;
+  descriptorBuffers[3].offset = outOffset;
   descriptorBuffers[3].range = inoutBufferSize;
 
-  descriptorBuffers[4].buffer = outBuffer;
-  descriptorBuffers[4].offset = outOffset;
-  descriptorBuffers[4].range = inoutBufferSize;
-
-  std::vector<VkWriteDescriptorSet> writes(7);
+  std::vector<VkWriteDescriptorSet> writes(6);
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[0].dstSet = storageDescriptor;
   writes[0].dstBinding = 0;
@@ -366,8 +354,8 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
   writes[1].pBufferInfo = &descriptorBuffers[1];
 
   writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  writes[2].dstSet = storageDescriptor;
-  writes[2].dstBinding = 2;
+  writes[2].dstSet = inOutDescriptor;
+  writes[2].dstBinding = 0;
   writes[2].dstArrayElement = 0;
   writes[2].descriptorCount = 1;
   writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -375,35 +363,27 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
 
   writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[3].dstSet = inOutDescriptor;
-  writes[3].dstBinding = 0;
+  writes[3].dstBinding = 1;
   writes[3].dstArrayElement = 0;
   writes[3].descriptorCount = 1;
   writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   writes[3].pBufferInfo = &descriptorBuffers[3];
 
   writes[4] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  writes[4].dstSet = inOutDescriptor;
-  writes[4].dstBinding = 1;
+  writes[4].dstSet = outInDescriptor;
+  writes[4].dstBinding = 0;
   writes[4].dstArrayElement = 0;
   writes[4].descriptorCount = 1;
   writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  writes[4].pBufferInfo = &descriptorBuffers[4];
+  writes[4].pBufferInfo = &descriptorBuffers[3];
 
   writes[5] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[5].dstSet = outInDescriptor;
-  writes[5].dstBinding = 0;
+  writes[5].dstBinding = 1;
   writes[5].dstArrayElement = 0;
   writes[5].descriptorCount = 1;
   writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  writes[5].pBufferInfo = &descriptorBuffers[4];
-
-  writes[6] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  writes[6].dstSet = outInDescriptor;
-  writes[6].dstBinding = 1;
-  writes[6].dstArrayElement = 0;
-  writes[6].descriptorCount = 1;
-  writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  writes[6].pBufferInfo = &descriptorBuffers[3];
+  writes[5].pBufferInfo = &descriptorBuffers[2];
 
   vkUpdateDescriptorSets(sorter->device, writes.size(), writes.data(), 0, NULL);
 
@@ -470,7 +450,7 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
   bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
   bufferMemoryBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
   bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-  bufferMemoryBarriers[0].buffer = scanBuffer;
+  bufferMemoryBarriers[0].buffer = histogramBuffer;
   bufferMemoryBarriers[0].offset = 0;
   bufferMemoryBarriers[0].size = HistogramByteSize();
   dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -644,23 +624,17 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
 void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
                                        VxSorter sorter,
                                        VkBuffer histogramBuffer,
-                                       VkDeviceSize histogramOffset,
-                                       VkBuffer scanBuffer,
-                                       VkDeviceSize scanOffset) {
+                                       VkDeviceSize histogramOffset) {
   uint32_t commandIndex = sorter->commandIndex;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
 
   // write descriptors
-  std::vector<VkDescriptorBufferInfo> descriptorBuffers(2);
+  std::vector<VkDescriptorBufferInfo> descriptorBuffers(1);
   descriptorBuffers[0].buffer = histogramBuffer;
   descriptorBuffers[0].offset = histogramOffset;
   descriptorBuffers[0].range = HistogramByteSize();
 
-  descriptorBuffers[1].buffer = scanBuffer;
-  descriptorBuffers[1].offset = scanOffset;
-  descriptorBuffers[1].range = HistogramByteSize();
-
-  std::vector<VkWriteDescriptorSet> writes(2);
+  std::vector<VkWriteDescriptorSet> writes(1);
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[0].dstSet = storageDescriptor;
   writes[0].dstBinding = 0;
@@ -668,14 +642,6 @@ void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
   writes[0].descriptorCount = 1;
   writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   writes[0].pBufferInfo = &descriptorBuffers[0];
-
-  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  writes[1].dstSet = storageDescriptor;
-  writes[1].dstBinding = 1;
-  writes[1].dstArrayElement = 0;
-  writes[1].descriptorCount = 1;
-  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  writes[1].pBufferInfo = &descriptorBuffers[1];
 
   vkUpdateDescriptorSets(sorter->device, writes.size(), writes.data(), 0, NULL);
 
@@ -696,7 +662,8 @@ void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
 void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
                            uint32_t elementCount, uint32_t pass,
                            VkBuffer buffer, VkDeviceSize offset,
-                           VkBuffer scanBuffer, VkDeviceSize scanOffset,
+                           VkBuffer histogramBuffer,
+                           VkDeviceSize histogramOffset,
                            VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
                            VkBuffer outBuffer, VkDeviceSize outOffset) {
   uint32_t commandIndex = sorter->commandIndex;
@@ -708,8 +675,8 @@ void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
 
   // write descriptors
   std::vector<VkDescriptorBufferInfo> descriptorBuffers(4);
-  descriptorBuffers[0].buffer = scanBuffer;
-  descriptorBuffers[0].offset = scanOffset;
+  descriptorBuffers[0].buffer = histogramBuffer;
+  descriptorBuffers[0].offset = histogramOffset;
   descriptorBuffers[0].range = HistogramByteSize();
 
   descriptorBuffers[1].buffer = lookbackBuffer;
@@ -727,7 +694,7 @@ void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
   std::vector<VkWriteDescriptorSet> writes(4);
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[0].dstSet = storageDescriptor;
-  writes[0].dstBinding = 1;
+  writes[0].dstBinding = 0;
   writes[0].dstArrayElement = 0;
   writes[0].descriptorCount = 1;
   writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -735,7 +702,7 @@ void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
 
   writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[1].dstSet = storageDescriptor;
-  writes[1].dstBinding = 2;
+  writes[1].dstBinding = 1;
   writes[1].dstArrayElement = 0;
   writes[1].descriptorCount = 1;
   writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;

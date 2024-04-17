@@ -13,7 +13,6 @@ class VulkanBenchmarkBase {
  private:
   struct IntermediateResults {
     std::vector<uint32_t> histogram;
-    std::vector<uint32_t> histogram_cumsum;
     std::vector<uint32_t> keys[4];
   };
 
@@ -48,7 +47,7 @@ class VulkanBenchmarkBase {
   };
   Buffer keys_;
   Buffer out_keys_;
-  Buffer histogram_;  // histogram + prefix sum
+  Buffer histogram_;
   Buffer lookback_;
   Buffer staging_;
 };

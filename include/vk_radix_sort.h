@@ -21,7 +21,6 @@ void vxGetSorterBufferSize(uint32_t maxElementCount, VkDeviceSize* size);
 void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                     uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
                     VkBuffer histogramBuffer, VkDeviceSize histogramOffset,
-                    VkBuffer scanBuffer, VkDeviceSize scanOffset,
                     VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
                     VkBuffer outBuffer, VkDeviceSize outOffset);
 
@@ -31,9 +30,10 @@ void vxCmdRadixSortGlobalHistogram(VkCommandBuffer commandBuffer,
                                    VkBuffer histogramBuffer,
                                    VkDeviceSize histogramOffset);
 
-void vxCmdRadixSortGlobalHistogramScan(
-    VkCommandBuffer commandBuffer, VxSorter sorter, VkBuffer histogramBuffer,
-    VkDeviceSize histogramOffset, VkBuffer scanBuffer, VkDeviceSize scanOffset);
+void vxCmdRadixSortGlobalHistogramScan(VkCommandBuffer commandBuffer,
+                                       VxSorter sorter,
+                                       VkBuffer histogramBuffer,
+                                       VkDeviceSize histogramOffset);
 
 /**
  * pass: 0, 1, 2, or 3.
@@ -41,7 +41,8 @@ void vxCmdRadixSortGlobalHistogramScan(
 void vxCmdRadixSortBinning(VkCommandBuffer commandBuffer, VxSorter sorter,
                            uint32_t elementCount, uint32_t pass,
                            VkBuffer buffer, VkDeviceSize offset,
-                           VkBuffer scanBuffer, VkDeviceSize scanOffset,
+                           VkBuffer histogramBuffer,
+                           VkDeviceSize histogramOffset,
                            VkBuffer lookbackBuffer, VkDeviceSize lookbackOffset,
                            VkBuffer outBuffer, VkDeviceSize outOffset);
 

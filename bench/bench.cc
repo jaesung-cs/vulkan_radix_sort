@@ -36,16 +36,6 @@ int main() {
     }
   }
 
-  if (!result.histogram_cumsum.empty()) {
-    std::cout << "scan:" << std::dec << std::endl;
-    for (int i = 0; i < 4; i++) {
-      std::cout << "pass " << i << ":" << std::endl;
-      for (int j = 0; j < RADIX; j++)
-        std::cout << result.histogram_cumsum[i * RADIX + j] << ' ';
-      std::cout << std::endl;
-    }
-  }
-
   // sort steps
   {
     std::cout << "vulkan sort steps" << std::endl;

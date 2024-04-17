@@ -199,7 +199,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = 2 * 4 * 256 * sizeof(uint32_t);
+    buffer_info.size = 4 * 256 * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
@@ -301,8 +301,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::GlobalHistogram(
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
   vxCmdRadixSortGlobalHistogramScan(command_buffer_, sorter_, histogram_.buffer,
-                                    0, histogram_.buffer,
-                                    4 * RADIX * sizeof(uint32_t));
+                                    0);
 
   // copy to staging buffer
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -312,12 +311,12 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::GlobalHistogram(
   buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
   buffer_barrier.buffer = histogram_.buffer;
   buffer_barrier.offset = 0;
-  buffer_barrier.size = 2 * 4 * RADIX * sizeof(uint32_t);
+  buffer_barrier.size = 4 * RADIX * sizeof(uint32_t);
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
   region.srcOffset = 0;
   region.dstOffset = 0;
-  region.size = 2 * 4 * RADIX * sizeof(uint32_t);
+  region.size = 4 * RADIX * sizeof(uint32_t);
   vkCmdCopyBuffer(command_buffer_, histogram_.buffer, staging_.buffer, 1,
                   &region);
 
@@ -339,17 +338,12 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::GlobalHistogram(
   result.histogram.resize(4 * RADIX);
   std::memcpy(result.histogram.data(), staging_.map,
               4 * RADIX * sizeof(uint32_t));
-  result.histogram_cumsum.resize(4 * RADIX);
-  std::memcpy(result.histogram_cumsum.data(),
-              staging_.map + 4 * RADIX * sizeof(uint32_t),
-              4 * RADIX * sizeof(uint32_t));
   return result;
 }
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortSteps(
     const std::vector<uint32_t>& keys) {
   auto element_count = keys.size();
-  VkDeviceSize histogram_size = 4 * RADIX * sizeof(uint32_t);
 
   auto result = GlobalHistogram(keys);
 
@@ -373,8 +367,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortSteps(
     vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
     vxCmdRadixSortBinning(command_buffer_, sorter_, element_count, i, in, 0,
-                          histogram_.buffer, histogram_size, lookback_.buffer,
-                          0, out, 0);
+                          histogram_.buffer, 0, lookback_.buffer, 0, out, 0);
 
     // copy to staging buffer
     VkBufferMemoryBarrier2 buffer_barrier = {
@@ -453,9 +446,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
   vxCmdRadixSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-                 histogram_.buffer, 0, histogram_.buffer,
-                 4 * RADIX * sizeof(uint32_t), lookback_.buffer, 0,
-                 out_keys_.buffer, 0);
+                 histogram_.buffer, 0, lookback_.buffer, 0, out_keys_.buffer,
+                 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};

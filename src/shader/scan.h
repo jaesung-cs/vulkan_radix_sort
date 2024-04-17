@@ -4,44 +4,57 @@
 const char* scan_comp = R"shader(
 #version 460 core
 
+#extension GL_KHR_shader_subgroup_basic: enable
+#extension GL_KHR_shader_subgroup_arithmetic: enable
+#extension GL_KHR_shader_subgroup_ballot: enable
+
 const uint RADIX = 256;
-const uint WORKGROUP_SIZE = 512;
 
 // dispatch with group count (1, 1, 1)
 layout (local_size_x = RADIX) in;
 
-layout (set = 0, binding = 0) readonly buffer Histogram {
+layout (set = 0, binding = 0) buffer Histogram {
   uint histogram[];  // (4, R)
 };
 
-layout (set = 0, binding = 1) writeonly buffer HistogramCumsum {
-  uint histogramCumsum[];  // (4, R)
-};
-
-// to avoid bank conflict?
-const uint ROWS = RADIX + 1;
-shared uint count[4 * ROWS];
+shared uint scanIntermediate[RADIX / 32];
 
 void main() {
-  uint index = gl_GlobalInvocationID.x;
-  if (index >= RADIX) return;
+  uint threadIndex = gl_SubgroupInvocationID;  // 0..31
+  uint subgroupIndex = gl_SubgroupID;  // 0..7
+  uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
 
-  // TODO: implement parallel scan
-
-  for (int i = 0; i < 4; ++i) count[ROWS * i + index] = histogram[RADIX * i + index];
-  barrier();
-
-  if (index < 4) {
-    uint psum = 0;
-    for (int i = 0; i < RADIX; ++i) {
-      uint c = count[ROWS * index + i];
-      count[ROWS * index + i] = psum;
-      psum += c;
+  uint excl[4];
+  #pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    uint value = histogram[RADIX * i + index];
+    excl[i] = subgroupExclusiveAdd(value);
+    uint sum = subgroupAdd(value);
+    if (threadIndex == 0) {
+      scanIntermediate[gl_NumSubgroups * i + subgroupIndex] = sum;
     }
   }
   barrier();
-  
-  for (int i = 0; i < 4; ++i) histogramCumsum[RADIX * i + index] = count[ROWS * i + index];
+
+  if (index < RADIX / gl_SubgroupSize) {
+    #pragma unroll
+    for (int i = 0; i < 4; i++) {
+      uint value = scanIntermediate[gl_NumSubgroups * i + index];
+      uint excl = subgroupExclusiveAdd(value);
+      scanIntermediate[gl_NumSubgroups * i + index] = excl;
+    }
+  }
+  barrier();
+
+  #pragma unroll
+  for (int i = 0; i < 4; ++i) {
+    uint broadcastValue;
+    if (threadIndex == 0) {
+      broadcastValue = scanIntermediate[gl_NumSubgroups * i + subgroupIndex];
+    }
+    uint scanSum = subgroupBroadcast(broadcastValue, 0);
+    histogram[RADIX * i + index] = scanSum + excl[i];
+  }
 }
 
 )shader";

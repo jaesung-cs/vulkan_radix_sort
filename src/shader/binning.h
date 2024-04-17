@@ -23,11 +23,11 @@ layout (push_constant) uniform PushConstant {
   int pass;
 };
 
-layout (set = 0, binding = 1) readonly buffer HistogramCumsum {
-  uint histogramCumsum[];  // (4, R)
+layout (set = 0, binding = 0) readonly buffer Histogram {
+  uint histogram[];  // (4, R)
 };
 
-layout (set = 0, binding = 2, std430) buffer Lookback {
+layout (set = 0, binding = 1, std430) buffer Lookback {
   uint partitionCounter;  // startin from 0
 
   // Volatile memory enables lookback!
@@ -245,7 +245,7 @@ void main() {
   for (uint i = index; i < PARTITION_SIZE; i += WORKGROUP_SIZE) {
     uint key = sharedKeys[i];
     uint radix = bitfieldExtract(key, pass * 8, 8);
-    uint dstOffset = histogramCumsum[RADIX * pass + radix] + localHistogramSum[radix] + i;
+    uint dstOffset = histogram[RADIX * pass + radix] + localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {
       outKeys[dstOffset] = key;
     }
