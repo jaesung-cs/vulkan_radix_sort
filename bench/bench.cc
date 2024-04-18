@@ -174,6 +174,7 @@ int main() {
       auto data = GenerateUniformRandomData(size);
       auto result1 = vulkan_benchmark.SortKeyValue(data.keys, data.values);
 
+      std::cout << i << std::endl;
       std::cout << "total time: "
                 << static_cast<double>(result1.total_time) / 1e6 << "ms"
                 << std::endl;
