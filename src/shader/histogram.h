@@ -8,12 +8,12 @@ const uint RADIX = 256;
 
 layout (local_size_x_id = 0) in;
 
-layout (push_constant) uniform PushConstant {
-  uint elementCount;
-};
-
 layout (set = 0, binding = 0) writeonly buffer Histogram {
   uint histogram[];  // (4, R)
+};
+
+layout (set = 0, binding = 2) readonly buffer ElementCount {
+  uint elementCount;
 };
 
 layout (set = 1, binding = 0) readonly buffer Keys {

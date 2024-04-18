@@ -193,7 +193,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = 2 * MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
@@ -203,7 +203,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.usage =
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = 2 * MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
@@ -329,6 +329,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
   std::memcpy(staging_.map + element_count * sizeof(uint32_t), values.data(),
               element_count * sizeof(uint32_t));
+  std::memcpy(staging_.map + 2 * element_count * sizeof(uint32_t),
+              &element_count, sizeof(uint32_t));
 
   VkCommandBufferBeginInfo command_buffer_begin_info = {
       VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -341,7 +343,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   VkBufferCopy region = {};
   region.srcOffset = 0;
   region.dstOffset = 0;
-  region.size = 2 * element_count * sizeof(uint32_t);
+  region.size = (2 * element_count + 1) * sizeof(uint32_t);
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   // sort
@@ -353,15 +355,16 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
   buffer_barrier.buffer = keys_.buffer;
   buffer_barrier.offset = 0;
-  buffer_barrier.size = 2 * element_count * sizeof(uint32_t);
+  buffer_barrier.size = (2 * element_count + 1) * sizeof(uint32_t);
   VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dependency_info.bufferMemoryBarrierCount = 1;
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vxCmdRadixSortKeyValue(command_buffer_, sorter_, element_count, keys_.buffer,
-                         0, keys_.buffer, element_count * sizeof(uint32_t),
-                         query_pool_, 0);
+  vxCmdRadixSortKeyValueIndirect(
+      command_buffer_, sorter_, keys_.buffer,
+      2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
+      element_count * sizeof(uint32_t), query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};

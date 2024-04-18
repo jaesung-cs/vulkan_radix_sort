@@ -19,7 +19,6 @@ const uint PARTITION_SIZE = WORKGROUP_SIZE * WORKGROUP_COUNT;
 layout (local_size_x = WORKGROUP_SIZE) in;
 
 layout (push_constant) uniform PushConstant {
-  uint elementCount;
   int pass;
 };
 
@@ -28,10 +27,14 @@ layout (set = 0, binding = 0) readonly buffer Histogram {
 };
 
 layout (set = 0, binding = 1, std430) buffer Lookback {
-  uint partitionCounter;  // startin from 0
+  uint partitionCounter;  // starting from 0
 
   // Volatile memory enables lookback!
   volatile uint lookback[];  // (ceil(N/P), R)
+};
+
+layout (set = 0, binding = 2) readonly buffer ElementCount {
+  uint elementCount;
 };
 
 layout (set = 1, binding = 0) readonly buffer Keys {
@@ -91,6 +94,10 @@ void main() {
   if (index == 0) {
     partitionIndex = atomicAdd(partitionCounter, 1);
   }
+  barrier();
+
+  if (PARTITION_SIZE * partitionIndex >= elementCount) return;
+
   if (index < RADIX) {
     for (int i = 0; i < gl_NumSubgroups; ++i) {
       localHistogram[gl_NumSubgroups * index + i] = 0;

@@ -67,4 +67,23 @@ void vxCmdRadixSortKeyValue(VkCommandBuffer commandBuffer, VxSorter sorter,
                             VkDeviceSize valueOffset, VkQueryPool queryPool,
                             uint32_t query);
 
+/**
+ * indirectBuffer contains elementCount.
+ *
+ * The sort command reads a uint32_t value from indirectBuffer at
+ * indirectOffset.
+ *
+ * User must add barrier with second synchronization scope
+ * COMPUTE_SHADER stage and SHADER_READ access.
+ *
+ * indirectBuffer requires TRANSFER_SRC buffer usage flag.
+ */
+void vxCmdRadixSortKeyValueIndirect(VkCommandBuffer commandBuffer,
+                                    VxSorter sorter, VkBuffer indirectBuffer,
+                                    VkDeviceSize indirectOffset,
+                                    VkBuffer buffer, VkDeviceSize offset,
+                                    VkBuffer valueBuffer,
+                                    VkDeviceSize valueOffset,
+                                    VkQueryPool queryPool, uint32_t query);
+
 #endif  // VK_RADIX_SORT_H

@@ -54,6 +54,7 @@ class VulkanBenchmarkBase {
     uint8_t* map = nullptr;
   };
   Buffer keys_;
+  Buffer indirect_;
   Buffer staging_;
 };
 
