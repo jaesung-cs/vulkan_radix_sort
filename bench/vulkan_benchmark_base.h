@@ -14,6 +14,7 @@ class VulkanBenchmarkBase {
   struct IntermediateResults {
     std::vector<uint32_t> histogram;
     std::vector<uint32_t> keys[4];
+    std::vector<uint32_t> values;
 
     uint64_t total_time = 0;
     uint64_t histogram_time = 0;
@@ -26,6 +27,8 @@ class VulkanBenchmarkBase {
   ~VulkanBenchmarkBase();
 
   IntermediateResults Sort(const std::vector<uint32_t>& keys);
+  IntermediateResults SortKeyValue(const std::vector<uint32_t>& keys,
+                                   const std::vector<uint32_t>& values);
 
  private:
   VkInstance instance_ = VK_NULL_HANDLE;

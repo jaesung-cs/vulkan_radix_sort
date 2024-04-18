@@ -93,13 +93,11 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   vkGetPhysicalDeviceQueueFamilyProperties(
       physical_device_, &queue_family_count, queue_families.data());
 
-  // need just compute and transfer, but add graphics to select a generic queue.
-  constexpr VkQueueFlags graphics_queue_flags =
-      VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
   for (int i = 0; i < queue_families.size(); ++i) {
     const auto& queue_family = queue_families[i];
-    if ((queue_family.queueFlags & graphics_queue_flags) ==
-        graphics_queue_flags) {
+    if ((queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT) ==
+            VK_QUEUE_COMPUTE_BIT &&
+        (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) {
       queue_family_index_ = i;
       break;
     }
@@ -195,7 +193,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    buffer_info.size = 2 * MAX_ELEMENT_COUNT * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
@@ -205,7 +203,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.usage =
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = MAX_ELEMENT_COUNT * sizeof(uint32_t);
+    buffer_info.size = 2 * MAX_ELEMENT_COUNT * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
@@ -312,6 +310,102 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   IntermediateResults result;
   result.keys[3].resize(element_count);
   std::memcpy(result.keys[3].data(), staging_.map,
+              element_count * sizeof(uint32_t));
+  result.total_time = timestamps[7] - timestamps[0];
+  result.histogram_time = timestamps[1] - timestamps[0];
+  result.scan_time = timestamps[2] - timestamps[1];
+  result.binning_times.resize(4);
+  result.binning_times[0] = timestamps[3] - timestamps[2];
+  result.binning_times[1] = timestamps[4] - timestamps[3];
+  result.binning_times[2] = timestamps[5] - timestamps[4];
+  result.binning_times[3] = timestamps[6] - timestamps[5];
+  return result;
+}
+
+VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
+    const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
+  auto element_count = keys.size();
+
+  std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
+  std::memcpy(staging_.map + element_count * sizeof(uint32_t), values.data(),
+              element_count * sizeof(uint32_t));
+
+  VkCommandBufferBeginInfo command_buffer_begin_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
+
+  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, 8);
+
+  // copy to keys buffer
+  VkBufferCopy region = {};
+  region.srcOffset = 0;
+  region.dstOffset = 0;
+  region.size = 2 * element_count * sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
+
+  // sort
+  VkBufferMemoryBarrier2 buffer_barrier = {
+      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  buffer_barrier.buffer = keys_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = 2 * element_count * sizeof(uint32_t);
+  VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  vxCmdRadixSortKeyValue(command_buffer_, sorter_, element_count, keys_.buffer,
+                         0, keys_.buffer, element_count * sizeof(uint32_t),
+                         query_pool_, 0);
+
+  // copy back
+  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+  buffer_barrier.buffer = keys_.buffer;
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = 2 * element_count * sizeof(uint32_t);
+  dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+
+  region.srcOffset = 0;
+  region.dstOffset = 0;
+  region.size = 2 * element_count * sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &region);
+
+  vkEndCommandBuffer(command_buffer_);
+
+  VkCommandBufferSubmitInfo command_buffer_submit_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+  command_buffer_submit_info.commandBuffer = command_buffer_;
+  VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  submit.commandBufferInfoCount = 1;
+  submit.pCommandBufferInfos = &command_buffer_submit_info;
+  vkQueueSubmit2(queue_, 1, &submit, fence_);
+  vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  vkResetFences(device_, 1, &fence_);
+
+  std::vector<uint64_t> timestamps(8);
+  vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
+                        timestamps.size() * sizeof(uint64_t), timestamps.data(),
+                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+
+  IntermediateResults result;
+  result.keys[3].resize(element_count);
+  result.values.resize(element_count);
+  std::memcpy(result.keys[3].data(), staging_.map,
+              element_count * sizeof(uint32_t));
+  std::memcpy(result.values.data(),
+              staging_.map + element_count * sizeof(uint32_t),
               element_count * sizeof(uint32_t));
   result.total_time = timestamps[7] - timestamps[0];
   result.histogram_time = timestamps[1] - timestamps[0];

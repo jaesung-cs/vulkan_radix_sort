@@ -61,4 +61,10 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
                     uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
                     VkQueryPool queryPool, uint32_t query);
 
+void vxCmdRadixSortKeyValue(VkCommandBuffer commandBuffer, VxSorter sorter,
+                            uint32_t elementCount, VkBuffer buffer,
+                            VkDeviceSize offset, VkBuffer valueBuffer,
+                            VkDeviceSize valueOffset, VkQueryPool queryPool,
+                            uint32_t query);
+
 #endif  // VK_RADIX_SORT_H

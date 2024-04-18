@@ -42,13 +42,27 @@ layout (set = 1, binding = 1) writeonly buffer OutKeys {
   uint outKeys[];  // (N)
 };
 
+#ifdef KEY_VALUE
+layout (set = 1, binding = 2) readonly buffer Values {
+  uint values[];  // (N)
+};
+
+layout (set = 1, binding = 3) writeonly buffer OutValues {
+  uint outValues[];  // (N)
+};
+
+const uint SHMEM_SIZE = 2 * PARTITION_SIZE;
+#else
+const uint SHMEM_SIZE = PARTITION_SIZE;
+#endif
+
 // Onesweep lookback status. 0xc = 0b1100 for GLOBAL_SUM, for |(or) operator.
 #define LOCAL_COUNT 0x40000000u
 #define GLOBAL_SUM 0xc0000000u
 
 shared uint partitionIndex;
 
-shared uint localHistogram[PARTITION_SIZE];  // (R, S=16)=4096, or (P) for alias. take maximum.
+shared uint localHistogram[SHMEM_SIZE];  // (R, S=16)=4096, (P), or (2P) for alias. take maximum.
 shared uint localHistogramSum[RADIX];
 
 // returns 0b00000....11111, where msb is id-1.
@@ -89,10 +103,18 @@ void main() {
   uint localRadix[WORKGROUP_COUNT];
   uint localOffsets[WORKGROUP_COUNT];
   uint subgroupHistogram[WORKGROUP_COUNT];
+
+#ifdef KEY_VALUE
+  uint localValues[WORKGROUP_COUNT];
+#endif
   for (int i = 0; i < WORKGROUP_COUNT; ++i) {
     uint keyIndex = PARTITION_SIZE * partitionIndex + (WORKGROUP_COUNT * gl_SubgroupSize) * subgroupIndex + i * gl_SubgroupSize + threadIndex;
     uint key = keyIndex < elementCount ? keys[keyIndex] : 0xffffffff;
     localKeys[i] = key;
+
+#ifdef KEY_VALUE
+    localValues[i] = keyIndex < elementCount ? values[keyIndex] : 0;
+#endif
 
     uint radix = bitfieldExtract(key, pass * 8, 8);
     localRadix[i] = radix;
@@ -233,6 +255,10 @@ void main() {
   // now localHistogram is unused, so alias memory.
   for (int i = 0; i < WORKGROUP_COUNT; ++i) {
     localHistogram[localOffsets[i]] = localKeys[i];
+
+#ifdef KEY_VALUE
+    localHistogram[PARTITION_SIZE + localOffsets[i]] = localValues[i];
+#endif
   }
   barrier();
 
@@ -243,6 +269,10 @@ void main() {
     uint dstOffset = localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {
       outKeys[dstOffset] = key;
+
+#ifdef KEY_VALUE
+      outValues[dstOffset] = localHistogram[PARTITION_SIZE + i];
+#endif
     }
   }
 }

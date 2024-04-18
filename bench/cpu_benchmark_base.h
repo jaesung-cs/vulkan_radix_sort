@@ -14,6 +14,7 @@ class CpuBenchmarkBase {
   struct IntermediateResults {
     std::vector<uint32_t> histogram;
     std::vector<uint32_t> keys[4];
+    std::vector<uint32_t> values;
   };
 
  public:
@@ -22,6 +23,8 @@ class CpuBenchmarkBase {
 
   IntermediateResults GlobalHistogram(const std::vector<uint32_t>& keys);
   IntermediateResults Sort(const std::vector<uint32_t>& keys);
+  IntermediateResults SortKeyValue(const std::vector<uint32_t>& keys,
+                                   const std::vector<uint32_t>& values);
 
  private:
 };

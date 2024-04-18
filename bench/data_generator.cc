@@ -1,17 +1,23 @@
+#include "data_generator.h"
 
 #include <random>
 
-std::vector<uint32_t> GenerateUniformRandomData(uint32_t size, uint32_t bits) {
+SortData GenerateUniformRandomData(uint32_t size, uint32_t bits) {
   std::random_device rd;
   std::mt19937 gen(rd());
-  std::uniform_int_distribution<uint32_t> dist;
+  std::uniform_int_distribution<uint32_t> dist_values;
+  std::uniform_int_distribution<uint32_t> dist_keys;
   if (bits < 32)
-    dist = std::uniform_int_distribution<uint32_t>(0, (1u << bits) - 1);
+    dist_keys = std::uniform_int_distribution<uint32_t>(0, (1u << bits) - 1);
 
-  std::vector<uint32_t> data;
-  data.reserve(size);
+  SortData data;
+  data.keys.reserve(size);
+  data.values.reserve(size);
   for (int i = 0; i < size; i++) {
-    data.push_back(dist(gen));
+    data.keys.push_back(dist_keys(gen));
+  }
+  for (int i = 0; i < size; i++) {
+    data.values.push_back(dist_values(gen));
   }
   return data;
 }
