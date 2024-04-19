@@ -12,6 +12,37 @@ State-of-the-art GPU radix sort algorithm, [Onesweep (Link to NVidia Research)](
   - `Vulkan::shaderc_combined` new in version `3.24`.
 
 
+## Dependencies
+- `VulkanMemoryAllocator`
+  - To avoid conflict with parent project which also depends on a specific version of `VulkanMemoryAllocator`, this library only contains forward declaration.
+  - The parent must contains a cpp file with `#define VMA_IMPLEMENTATION`.
+
+
+## Build and Test
+```bash
+$ cmake . -B build
+$ cmake --build build --config Release -j
+$ ./build/Release/bench.exe  # Windows
+$ ./build/bench  # Linux
+```
+
+
+### Test Environment
+- Windows, NVIDIA GeForce RTX 4090.
+
+
+## Use as a Library with CMake
+- Add `VulkanMemoryAllocator` before addigng `vulkan_radix_sort`
+    ```cmake
+    add_subdirectory(path/to/VulkanMemoryAllocator)
+    add_subdirectory(path/to/vulkan_radix_sort)
+    ```
+
+- Link to `vk_radix_sort` in your project (library, binary)
+    ```cmake
+    target_link_libraries(my_project PRIVATE Vulkan::Vulkan VulkanMemoryAllocator vk_radix_sort)
+    ```
+
 ## Usage
 1. When creating `VkDevice`, enable `VK_KHR_maintenance4` and `VK_KHR_synchronization2` device features.
 
@@ -35,11 +66,11 @@ State-of-the-art GPU radix sort algorithm, [Onesweep (Link to NVidia Research)](
 
     ```c++
     VxSorterCreateInfo sorterInfo = {};
-    sorterInfo.allocator = allocator_;
-    sorterInfo.sorterLayout = sorterLayout_;
+    sorterInfo.allocator = allocator;  // VmaAllocator
+    sorterInfo.sorterLayout = sorterLayout;
     sorterInfo.maxElementCount = 10000000;
     sorterInfo.maxCommandsInFlight = 2;
-    vxCreateSorter(&sorterInfo, &sorter_);
+    vxCreateSorter(&sorterInfo, &sorter);
     ```
 
 1. Record sort commands.
