@@ -1300,8 +1300,6 @@ void vxCmdRadixSortKeyValueIndirect(VkCommandBuffer commandBuffer,
                          queryPool, query + 0);
   }
 
-  // TODO: copy elementCount
-
   // clear histogram
   vkCmdFillBuffer(commandBuffer, storage, histogramOffset, histogramSize, 0);
 
@@ -1312,7 +1310,7 @@ void vxCmdRadixSortKeyValueIndirect(VkCommandBuffer commandBuffer,
   region.size = sizeof(uint32_t);
   vkCmdCopyBuffer(commandBuffer, indirectBuffer, storage, 1, &region);
 
-  std::vector<VkBufferMemoryBarrier2> bufferMemoryBarriers(1);
+  std::vector<VkBufferMemoryBarrier2> bufferMemoryBarriers(2);
   bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
   bufferMemoryBarriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
   bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
