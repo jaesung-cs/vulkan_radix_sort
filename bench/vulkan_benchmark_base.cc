@@ -175,17 +175,17 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
 
   // sorter
-  VxSorterLayoutCreateInfo sorter_layout_info = {};
+  VrdxSorterLayoutCreateInfo sorter_layout_info = {};
+  sorter_layout_info.physicalDevice = physical_device_;
   sorter_layout_info.device = device_;
-  sorter_layout_info.histogramWorkgroupSize = 1024;
-  vxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
+  vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
 
-  VxSorterCreateInfo sorter_info = {};
+  VrdxSorterCreateInfo sorter_info = {};
   sorter_info.allocator = allocator_;
   sorter_info.sorterLayout = sorter_layout_;
   sorter_info.maxElementCount = 10000000;
   sorter_info.maxCommandsInFlight = 1;
-  vxCreateSorter(&sorter_info, &sorter_);
+  vrdxCreateSorter(&sorter_info, &sorter_);
 
   // preallocate buffers
   {
@@ -222,8 +222,8 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
   vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
   vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
-  vxDestroySorter(sorter_);
-  vxDestroySorterLayout(sorter_layout_);
+  vrdxDestroySorter(sorter_);
+  vrdxDestroySorterLayout(sorter_layout_);
   vkDestroyQueryPool(device_, query_pool_, NULL);
   vkDestroyFence(device_, fence_, NULL);
   vkDestroyCommandPool(device_, command_pool_, NULL);
@@ -268,8 +268,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vxCmdRadixSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-                 query_pool_, 0);
+  vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
+              query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -361,10 +361,10 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vxCmdRadixSortKeyValueIndirect(
-      command_buffer_, sorter_, keys_.buffer,
-      2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
-      element_count * sizeof(uint32_t), query_pool_, 0);
+  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, keys_.buffer,
+                              2 * element_count * sizeof(uint32_t),
+                              keys_.buffer, 0, keys_.buffer,
+                              element_count * sizeof(uint32_t), query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};

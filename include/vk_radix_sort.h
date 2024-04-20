@@ -5,45 +5,40 @@
 
 #include "vk_mem_alloc.h"
 
-struct VxSorterLayout_T;
-struct VxSorter_T;
+struct VrdxSorterLayout_T;
+struct VrdxSorter_T;
 
 /**
- * VxSorterLayout creates shared resources, such as pipelines.
+ * VrdxSorterLayout creates shared resources, such as pipelines.
  */
-VK_DEFINE_HANDLE(VxSorterLayout)
+VK_DEFINE_HANDLE(VrdxSorterLayout)
 
 /**
- * VxSorter creates resources per command, such as buffer and descriptor sets.
+ * VrdxSorter creates resources per command, such as buffer and descriptor sets.
  */
-VK_DEFINE_HANDLE(VxSorter)
+VK_DEFINE_HANDLE(VrdxSorter)
 
-struct VxSorterLayoutCreateInfo {
+struct VrdxSorterLayoutCreateInfo {
+  VkPhysicalDevice physicalDevice;
   VkDevice device;
-
-  /**
-   * leave it 0 for default=1024.
-   * try 256, 512, or 1024.
-   * 1024 gives best result, but may depend on device properties.
-   */
-  uint32_t histogramWorkgroupSize;
 };
 
-struct VxSorterCreateInfo {
-  VxSorterLayout sorterLayout;
+struct VrdxSorterCreateInfo {
+  VrdxSorterLayout sorterLayout;
   VmaAllocator allocator;
   uint32_t maxElementCount;
   uint32_t maxCommandsInFlight;
 };
 
-void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
-                          VxSorterLayout* pSorterLayout);
+void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
+                            VrdxSorterLayout* pSorterLayout);
 
-void vxDestroySorterLayout(VxSorterLayout sorterLayout);
+void vrdxDestroySorterLayout(VrdxSorterLayout sorterLayout);
 
-void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter);
+void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
+                      VrdxSorter* pSorter);
 
-void vxDestroySorter(VxSorter sorter);
+void vrdxDestroySorter(VrdxSorter sorter);
 
 /**
  * if queryPool is not VK_NULL_HANDLE, it writes timestamps to 8 entries
@@ -57,15 +52,15 @@ void vxDestroySorter(VxSorter sorter);
  * query + 6: binning3 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
  * query + 7: sort end timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
  */
-void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
-                    uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
-                    VkQueryPool queryPool, uint32_t query);
+void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                 uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
+                 VkQueryPool queryPool, uint32_t query);
 
-void vxCmdRadixSortKeyValue(VkCommandBuffer commandBuffer, VxSorter sorter,
-                            uint32_t elementCount, VkBuffer buffer,
-                            VkDeviceSize offset, VkBuffer valueBuffer,
-                            VkDeviceSize valueOffset, VkQueryPool queryPool,
-                            uint32_t query);
+void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                         uint32_t elementCount, VkBuffer buffer,
+                         VkDeviceSize offset, VkBuffer valueBuffer,
+                         VkDeviceSize valueOffset, VkQueryPool queryPool,
+                         uint32_t query);
 
 /**
  * indirectBuffer contains elementCount.
@@ -78,12 +73,11 @@ void vxCmdRadixSortKeyValue(VkCommandBuffer commandBuffer, VxSorter sorter,
  *
  * indirectBuffer requires TRANSFER_SRC buffer usage flag.
  */
-void vxCmdRadixSortKeyValueIndirect(VkCommandBuffer commandBuffer,
-                                    VxSorter sorter, VkBuffer indirectBuffer,
-                                    VkDeviceSize indirectOffset,
-                                    VkBuffer buffer, VkDeviceSize offset,
-                                    VkBuffer valueBuffer,
-                                    VkDeviceSize valueOffset,
-                                    VkQueryPool queryPool, uint32_t query);
+void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
+                                 VrdxSorter sorter, VkBuffer indirectBuffer,
+                                 VkDeviceSize indirectOffset, VkBuffer buffer,
+                                 VkDeviceSize offset, VkBuffer valueBuffer,
+                                 VkDeviceSize valueOffset,
+                                 VkQueryPool queryPool, uint32_t query);
 
 #endif  // VK_RADIX_SORT_H

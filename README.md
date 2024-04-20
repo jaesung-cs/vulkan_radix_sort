@@ -46,31 +46,31 @@ $ ./build/bench  # Linux
 ## Usage
 1. When creating `VkDevice`, enable `VK_KHR_maintenance4` and `VK_KHR_synchronization2` device features.
 
-1. Create `VxSorterLayout`
+1. Create `VrdxSorterLayout`
 
     It creates shared resources: descriptor layouts, pipeline layouts, pipelines, etc.
 
     ```c++
-    VxSorterLayout sorterLayout = VK_NULL_HANDLE;
-    VxSorterLayoutCreateInfo sorterLayoutInfo = {};
+    VrdxSorterLayout sorterLayout = VK_NULL_HANDLE;
+    VrdxSorterLayoutCreateInfo sorterLayoutInfo = {};
     sorterLayoutInfo.device = device_;
     sorterLayoutInfo.histogramWorkgroupSize = 1024;
-    vxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
+    VrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
     ```
 
-1. Create `VxSorter` from `VxSorterLayout`.
+1. Create `VrdxSorter` from `VrdxSorterLayout`.
 
-    `VxSorter` owns a temporary storage buffer. The size of temporary storage is `2N` for key/value output, plus histogram.
+    `VrdxSorter` owns a temporary storage buffer. The size of temporary storage is `2N` for key/value output, plus histogram.
 
     It also create its own descriptor pool and descriptor sets of size equal to `maxCommandsInFlight`.
 
     ```c++
-    VxSorterCreateInfo sorterInfo = {};
+    VrdxSorterCreateInfo sorterInfo = {};
     sorterInfo.allocator = allocator;  // VmaAllocator
     sorterInfo.sorterLayout = sorterLayout;
     sorterInfo.maxElementCount = 10000000;
     sorterInfo.maxCommandsInFlight = 2;
-    vxCreateSorter(&sorterInfo, &sorter);
+    vrdxCreateSorter(&sorterInfo, &sorter);
     ```
 
 1. Record sort commands.
@@ -91,11 +91,11 @@ $ ./build/bench  # Linux
 
     ```c++
     VkQueryPool queryPool;  // VK_NULL_HANDLE, or a valid timestamp query pool with size at least 8.
-    vxCmdRadixSort(commandBuffer, sorter, elementCount, keysBuffer, 0, queryPool, 0);
-    vxCmdRadixSortKeyValue(commandBuffer, sorter, elementCount, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
+    vrdxCmdSort(commandBuffer, sorter, elementCount, keysBuffer, 0, queryPool, 0);
+    vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
 
     // indirectBuffer contains elementCount, a single uint entry in GPU buffer.
-    vxCmdRadixSortKeyValueIndirect(commandBuffer, sorter, indirectBuffer, 0, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
+    vrdxCmdSortKeyValueIndirect(commandBuffer, sorter, indirectBuffer, 0, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
     ```
 
 
@@ -104,7 +104,7 @@ $ ./build/bench  # Linux
 
 
 ## TODO
-- [ ] Use `VkPhysicalDeviceLimits` to get compute shader-related limits, such as `maxComputeWorkGroupSize` or `maxComputeSharedMemorySize`.
+- [x] Use `VkPhysicalDeviceLimits` to get compute shader-related limits, such as `maxComputeWorkGroupSize` or `maxComputeSharedMemorySize`.
 - [ ] Increase allowed `maxElementCount` by allocating buffers properly.
 - [ ] Compare with CUB radix sort
 - [ ] Compare with VkRadixSort

@@ -88,7 +88,7 @@ VkShaderModule CreateShaderModule(
 
 }  // namespace
 
-struct VxSorterLayout_T {
+struct VrdxSorterLayout_T {
   VkDevice device = VK_NULL_HANDLE;
 
   VkDescriptorSetLayout storageDescriptorSetLayout = VK_NULL_HANDLE;
@@ -103,9 +103,9 @@ struct VxSorterLayout_T {
   uint32_t histogramWorkgroupSize = 0;
 };
 
-struct VxSorter_T {
+struct VrdxSorter_T {
   uint32_t maxElementCount = 0;
-  VxSorterLayout layout = VK_NULL_HANDLE;
+  VrdxSorterLayout layout = VK_NULL_HANDLE;
   VmaAllocator allocator = VK_NULL_HANDLE;
 
   uint32_t maxCommandsInFlight = 0;
@@ -127,15 +127,18 @@ struct PushConstants {
   uint32_t pass;
 };
 
-void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
-                          VxSorterLayout* pSorterLayout) {
+void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
+                            VrdxSorterLayout* pSorterLayout) {
   VkDevice device = pCreateInfo->device;
 
   // shader specialization constants and defaults
-  // TODO: max workgroup size from physical device
-  uint32_t histogramWorkgroupSize = 1024;
-  if (pCreateInfo->histogramWorkgroupSize != 0)
-    histogramWorkgroupSize = pCreateInfo->histogramWorkgroupSize;
+  VkPhysicalDeviceProperties physicalDeviceProperties;
+  vkGetPhysicalDeviceProperties(pCreateInfo->physicalDevice,
+                                &physicalDeviceProperties);
+  uint32_t maxWorkgroupSize =
+      physicalDeviceProperties.limits.maxComputeWorkGroupSize[0];
+
+  uint32_t histogramWorkgroupSize = maxWorkgroupSize;
 
   // descriptor set layouts
   VkDescriptorSetLayout storageDescriptorSetLayout;
@@ -315,7 +318,7 @@ void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
       vkDestroyShaderModule(device, pipelineModule, NULL);
   }
 
-  *pSorterLayout = new VxSorterLayout_T();
+  *pSorterLayout = new VrdxSorterLayout_T();
   (*pSorterLayout)->device = device;
   (*pSorterLayout)->storageDescriptorSetLayout = storageDescriptorSetLayout;
   (*pSorterLayout)->inoutDescriptorSetLayout = inoutDescriptorSetLayout;
@@ -327,7 +330,7 @@ void vxCreateSorterLayout(const VxSorterLayoutCreateInfo* pCreateInfo,
   (*pSorterLayout)->histogramWorkgroupSize = histogramWorkgroupSize;
 }
 
-void vxDestroySorterLayout(VxSorterLayout sorterLayout) {
+void vrdxDestroySorterLayout(VrdxSorterLayout sorterLayout) {
   vkDestroyPipeline(sorterLayout->device, sorterLayout->histogramPipeline,
                     NULL);
   vkDestroyPipeline(sorterLayout->device, sorterLayout->scanPipeline, NULL);
@@ -343,8 +346,9 @@ void vxDestroySorterLayout(VxSorterLayout sorterLayout) {
   delete sorterLayout;
 }
 
-void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
-  VxSorterLayout sorterLayout = pCreateInfo->sorterLayout;
+void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
+                      VrdxSorter* pSorter) {
+  VrdxSorterLayout sorterLayout = pCreateInfo->sorterLayout;
   VkDevice device = sorterLayout->device;
   VmaAllocator allocator = pCreateInfo->allocator;
   uint32_t maxElementCount = pCreateInfo->maxElementCount;
@@ -423,7 +427,7 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
                     &allocation, NULL);
   }
 
-  *pSorter = new VxSorter_T();
+  *pSorter = new VrdxSorter_T();
   (*pSorter)->maxElementCount = maxElementCount;
   (*pSorter)->layout = sorterLayout;
   (*pSorter)->allocator = allocator;
@@ -437,16 +441,16 @@ void vxCreateSorter(const VxSorterCreateInfo* pCreateInfo, VxSorter* pSorter) {
   (*pSorter)->storageOffsets = storageOffsets;
 }
 
-void vxDestroySorter(VxSorter sorter) {
+void vrdxDestroySorter(VrdxSorter sorter) {
   vkDestroyDescriptorPool(sorter->layout->device, sorter->descriptorPool, NULL);
   vmaDestroyBuffer(sorter->allocator, sorter->storage, sorter->allocation);
   delete sorter;
 }
 
-void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
-                    uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
-                    VkQueryPool queryPool, uint32_t query) {
-  VxSorterLayout layout = sorter->layout;
+void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                 uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
+                 VkQueryPool queryPool, uint32_t query) {
+  VrdxSorterLayout layout = sorter->layout;
   uint32_t commandIndex = sorter->commandIndex;
   VkBuffer storage = sorter->storage;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
@@ -763,12 +767,12 @@ void vxCmdRadixSort(VkCommandBuffer commandBuffer, VxSorter sorter,
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
 }
 
-void vxCmdRadixSortKeyValue(VkCommandBuffer commandBuffer, VxSorter sorter,
-                            uint32_t elementCount, VkBuffer buffer,
-                            VkDeviceSize offset, VkBuffer valueBuffer,
-                            VkDeviceSize valueOffset, VkQueryPool queryPool,
-                            uint32_t query) {
-  VxSorterLayout layout = sorter->layout;
+void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                         uint32_t elementCount, VkBuffer buffer,
+                         VkDeviceSize offset, VkBuffer valueBuffer,
+                         VkDeviceSize valueOffset, VkQueryPool queryPool,
+                         uint32_t query) {
+  VrdxSorterLayout layout = sorter->layout;
   uint32_t commandIndex = sorter->commandIndex;
   VkBuffer storage = sorter->storage;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
@@ -1149,14 +1153,13 @@ void vxCmdRadixSortKeyValue(VkCommandBuffer commandBuffer, VxSorter sorter,
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
 }
 
-void vxCmdRadixSortKeyValueIndirect(VkCommandBuffer commandBuffer,
-                                    VxSorter sorter, VkBuffer indirectBuffer,
-                                    VkDeviceSize indirectOffset,
-                                    VkBuffer buffer, VkDeviceSize offset,
-                                    VkBuffer valueBuffer,
-                                    VkDeviceSize valueOffset,
-                                    VkQueryPool queryPool, uint32_t query) {
-  VxSorterLayout layout = sorter->layout;
+void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
+                                 VrdxSorter sorter, VkBuffer indirectBuffer,
+                                 VkDeviceSize indirectOffset, VkBuffer buffer,
+                                 VkDeviceSize offset, VkBuffer valueBuffer,
+                                 VkDeviceSize valueOffset,
+                                 VkQueryPool queryPool, uint32_t query) {
+  VrdxSorterLayout layout = sorter->layout;
   uint32_t commandIndex = sorter->commandIndex;
   VkBuffer storage = sorter->storage;
   VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];

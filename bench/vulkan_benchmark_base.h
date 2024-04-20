@@ -41,8 +41,8 @@ class VulkanBenchmarkBase {
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
-  VxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
-  VxSorter sorter_ = VK_NULL_HANDLE;
+  VrdxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
+  VrdxSorter sorter_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
   static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 24;
