@@ -726,42 +726,39 @@ void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
       dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
       dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
       vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
-    } else {
-      // barrier between next command
-      bufferMemoryBarriers.resize(2);
-
-      bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      bufferMemoryBarriers[0].srcStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[0].srcAccessMask =
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      bufferMemoryBarriers[0].buffer = storage;
-      bufferMemoryBarriers[0].offset = lookbackOffset;
-      bufferMemoryBarriers[0].size = lookbackSize;
-
-      bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      bufferMemoryBarriers[1].srcStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      bufferMemoryBarriers[1].dstStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[1].buffer = storage;
-      bufferMemoryBarriers[1].offset = outOffset;
-      bufferMemoryBarriers[1].size = inoutSize;
-
-      dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
-      dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
-      vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
     }
   }
 
   if (queryPool) {
     vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                          queryPool, query + 7);
+  }
+
+  // barrier between next command
+  {
+    bufferMemoryBarriers.resize(1);
+
+    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    bufferMemoryBarriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].dstStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].buffer = storage;
+    bufferMemoryBarriers[0].offset = lookbackOffset;
+    bufferMemoryBarriers[0].size = lookbackSize;
+
+    dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+    dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
   }
 
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
@@ -1112,42 +1109,39 @@ void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
       dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
       dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
       vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
-    } else {
-      // barrier between next command
-      bufferMemoryBarriers.resize(2);
-
-      bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      bufferMemoryBarriers[0].srcStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[0].srcAccessMask =
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      bufferMemoryBarriers[0].buffer = storage;
-      bufferMemoryBarriers[0].offset = lookbackOffset;
-      bufferMemoryBarriers[0].size = lookbackSize;
-
-      bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      bufferMemoryBarriers[1].srcStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      bufferMemoryBarriers[1].dstStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[1].buffer = storage;
-      bufferMemoryBarriers[1].offset = outOffset;
-      bufferMemoryBarriers[1].size = 2 * inoutSize;
-
-      dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
-      dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
-      vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
     }
   }
 
   if (queryPool) {
     vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                          queryPool, query + 7);
+  }
+
+  // barrier between next command
+  {
+    bufferMemoryBarriers.resize(1);
+
+    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    bufferMemoryBarriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].dstStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].buffer = storage;
+    bufferMemoryBarriers[0].offset = lookbackOffset;
+    bufferMemoryBarriers[0].size = lookbackSize;
+
+    dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+    dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
   }
 
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
@@ -1503,42 +1497,39 @@ void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
       dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
       dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
       vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
-    } else {
-      // barrier between next command
-      bufferMemoryBarriers.resize(2);
-
-      bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      bufferMemoryBarriers[0].srcStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[0].srcAccessMask =
-          VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      bufferMemoryBarriers[0].buffer = storage;
-      bufferMemoryBarriers[0].offset = lookbackOffset;
-      bufferMemoryBarriers[0].size = lookbackSize;
-
-      bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-      bufferMemoryBarriers[1].srcStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      bufferMemoryBarriers[1].dstStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[1].buffer = storage;
-      bufferMemoryBarriers[1].offset = outOffset;
-      bufferMemoryBarriers[1].size = 2 * inoutSize;
-
-      dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
-      dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
-      vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
     }
   }
 
   if (queryPool) {
     vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                          queryPool, query + 7);
+  }
+
+  // barrier between next command
+  {
+    bufferMemoryBarriers.resize(1);
+
+    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    bufferMemoryBarriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].dstStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].buffer = storage;
+    bufferMemoryBarriers[0].offset = lookbackOffset;
+    bufferMemoryBarriers[0].size = lookbackSize;
+
+    dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+    dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
   }
 
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
