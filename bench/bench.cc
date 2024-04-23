@@ -8,7 +8,7 @@
 int main() {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
-  int size = 10000000;
+  int size = 4190000;
   auto data = GenerateUniformRandomData(size);
 
   std::cout << "keys" << std::endl;
@@ -28,8 +28,11 @@ int main() {
     std::cout << "vulkan sort" << std::endl;
     auto result1 = vulkan_benchmark.Sort(data.keys);
 
+    double perf = (static_cast<double>(size) / 1e9) /
+                  (static_cast<double>(result1.total_time) / 1e9);
+
     std::cout << "total time: " << static_cast<double>(result1.total_time) / 1e6
-              << "ms" << std::endl;
+              << "ms (" << perf << " GItems/s)" << std::endl;
     std::cout << "histogram time: "
               << static_cast<double>(result1.histogram_time) / 1e6 << "ms"
               << std::endl;
@@ -81,8 +84,11 @@ int main() {
     std::cout << "vulkan sort" << std::endl;
     auto result1 = vulkan_benchmark.SortKeyValue(data.keys, data.values);
 
+    double perf = (static_cast<double>(size) / 1e9) /
+                  (static_cast<double>(result1.total_time) / 1e9);
+
     std::cout << "total time: " << static_cast<double>(result1.total_time) / 1e6
-              << "ms" << std::endl;
+              << "ms (" << perf << " GItems/s)" << std::endl;
     std::cout << "histogram time: "
               << static_cast<double>(result1.histogram_time) / 1e6 << "ms"
               << std::endl;
@@ -174,10 +180,13 @@ int main() {
       auto data = GenerateUniformRandomData(size);
       auto result1 = vulkan_benchmark.SortKeyValue(data.keys, data.values);
 
+      double perf = (static_cast<double>(size) / 1e9) /
+                    (static_cast<double>(result1.total_time) / 1e9);
+
       std::cout << i << std::endl;
       std::cout << "total time: "
-                << static_cast<double>(result1.total_time) / 1e6 << "ms"
-                << std::endl;
+                << static_cast<double>(result1.total_time) / 1e6 << "ms ("
+                << perf << " GItems/s)" << std::endl;
       std::cout << "histogram time: "
                 << static_cast<double>(result1.histogram_time) / 1e6 << "ms"
                 << std::endl;
