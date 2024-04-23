@@ -56,6 +56,11 @@ void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                  uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
                  VkQueryPool queryPool, uint32_t query);
 
+void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                         VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
+                         VkBuffer buffer, VkDeviceSize offset,
+                         VkQueryPool queryPool, uint32_t query);
+
 void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                          uint32_t elementCount, VkBuffer buffer,
                          VkDeviceSize offset, VkBuffer valueBuffer,
