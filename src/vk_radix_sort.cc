@@ -3,21 +3,36 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 #include <shaderc/shaderc.hpp>
 
 #include "shader/histogram.h"
 #include "shader/scan.h"
 #include "shader/binning.h"
+#include "shader/upsweep.h"
+#include "shader/spine.h"
+#include "shader/downsweep.h"
+
+// Twosweep = Reduce-then-scan
 
 namespace {
 
 constexpr uint32_t RADIX = 256;
-constexpr uint32_t PARTITION_SIZE = 8 * 512;
+constexpr int WORKGROUP_SIZE = 512;
+constexpr int PARTITION_DIVISION = 8;
+constexpr int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 
-constexpr VkDeviceSize HistogramSize() { return 4 * RADIX * sizeof(uint32_t); }
+constexpr VkDeviceSize OnesweepHistogramSize() {
+  return 4 * RADIX * sizeof(uint32_t);
+}
+
+VkDeviceSize TwosweepHistogramSize(uint32_t elementCount) {
+  return (RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) *
+         sizeof(uint32_t);
+}
 
 VkDeviceSize InoutSize(uint32_t elementCount) {
   return elementCount * sizeof(uint32_t);
@@ -31,9 +46,15 @@ constexpr VkDeviceSize Align(VkDeviceSize offset, VkDeviceSize size) {
   return (offset + size - 1) / size * size;
 }
 
-struct StorageOffsets {
+struct OnesweepStorageOffsets {
   VkDeviceSize histogramOffset = 0;
   VkDeviceSize lookbackOffset = 0;
+  VkDeviceSize elementCountOffset = 0;
+  VkDeviceSize outOffset = 0;
+};
+
+struct TwosweepStorageOffsets {
+  VkDeviceSize histogramOffset = 0;
   VkDeviceSize elementCountOffset = 0;
   VkDeviceSize outOffset = 0;
 };
@@ -41,7 +62,8 @@ struct StorageOffsets {
 // Compiles a shader to a SPIR-V binary, and create a VkShaderModule.
 VkShaderModule CreateShaderModule(
     VkDevice device, VkShaderStageFlagBits stage, const std::string& source,
-    const std::vector<std::string>& defines = {}) {
+    const std::vector<std::string>& defines = {},
+    const std::unordered_map<std::string, std::string>& defineValues = {}) {
   shaderc_shader_kind kind;
   switch (stage) {
     case VK_SHADER_STAGE_VERTEX_BIT:
@@ -61,6 +83,8 @@ VkShaderModule CreateShaderModule(
   shaderc::CompileOptions options;
 
   for (const auto& define : defines) options.AddMacroDefinition(define);
+  for (const auto& [key, value] : defineValues)
+    options.AddMacroDefinition(key, value);
 
   options.SetOptimizationLevel(shaderc_optimization_level_performance);
   options.SetTargetSpirv(shaderc_spirv_version_1_6);
@@ -101,12 +125,21 @@ struct VrdxSorterLayout_T {
   VkDescriptorSetLayout inoutDescriptorSetLayout = VK_NULL_HANDLE;
 
   VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+
+  // onesweep
   VkPipeline histogramPipeline = VK_NULL_HANDLE;
   VkPipeline scanPipeline = VK_NULL_HANDLE;
   VkPipeline binningPipeline = VK_NULL_HANDLE;
   VkPipeline binningKeyValuePipeline = VK_NULL_HANDLE;
 
-  uint32_t histogramWorkgroupSize = 0;
+  // twosweep
+  VkPipeline upsweepPipeline = VK_NULL_HANDLE;
+  VkPipeline spinePipeline = VK_NULL_HANDLE;
+  VkPipeline downsweepPipeline = VK_NULL_HANDLE;
+  VkPipeline downsweepKeyValuePipeline = VK_NULL_HANDLE;
+
+  uint32_t storageAlignment = 0;
+  uint32_t maxWorkgroupSize = 0;
 };
 
 struct VrdxSorter_T {
@@ -126,7 +159,8 @@ struct VrdxSorter_T {
 
   VkBuffer storage = VK_NULL_HANDLE;
   VmaAllocation allocation = VK_NULL_HANDLE;
-  StorageOffsets storageOffsets;
+  OnesweepStorageOffsets onesweepStorageOffsets;
+  TwosweepStorageOffsets twosweepStorageOffsets;
 };
 
 struct PushConstants {
@@ -138,13 +172,20 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
   VkDevice device = pCreateInfo->device;
 
   // shader specialization constants and defaults
-  VkPhysicalDeviceProperties physicalDeviceProperties;
-  vkGetPhysicalDeviceProperties(pCreateInfo->physicalDevice,
-                                &physicalDeviceProperties);
-  uint32_t maxWorkgroupSize =
-      physicalDeviceProperties.limits.maxComputeWorkGroupSize[0];
+  VkPhysicalDeviceVulkan11Properties physicalDeviceVulkan11Properties = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+  VkPhysicalDeviceProperties2 physicalDeviceProperties = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+  physicalDeviceProperties.pNext = &physicalDeviceVulkan11Properties;
 
-  uint32_t histogramWorkgroupSize = maxWorkgroupSize;
+  vkGetPhysicalDeviceProperties2(pCreateInfo->physicalDevice,
+                                 &physicalDeviceProperties);
+
+  uint32_t storageAlignment = physicalDeviceProperties.properties.limits
+                                  .minStorageBufferOffsetAlignment;
+  uint32_t maxWorkgroupSize =
+      physicalDeviceProperties.properties.limits.maxComputeWorkGroupSize[0];
+  uint32_t subgroupSize = physicalDeviceVulkan11Properties.subgroupSize;
 
   // descriptor set layouts
   VkDescriptorSetLayout storageDescriptorSetLayout;
@@ -244,13 +285,13 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     VkSpecializationMapEntry mapEntry = {};
     mapEntry.constantID = 0;
     mapEntry.offset = 0;
-    mapEntry.size = sizeof(histogramWorkgroupSize);
+    mapEntry.size = sizeof(maxWorkgroupSize);
 
     VkSpecializationInfo specializationInfo = {};
     specializationInfo.mapEntryCount = 1;
     specializationInfo.pMapEntries = &mapEntry;
-    specializationInfo.dataSize = sizeof(histogramWorkgroupSize);
-    specializationInfo.pData = &histogramWorkgroupSize;
+    specializationInfo.dataSize = sizeof(maxWorkgroupSize);
+    specializationInfo.pData = &maxWorkgroupSize;
 
     VkComputePipelineCreateInfo pipelineInfo = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
@@ -324,16 +365,109 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
       vkDestroyShaderModule(device, pipelineModule, NULL);
   }
 
+  VkPipeline upsweepPipeline;
+  {
+    VkShaderModule pipelineModule = CreateShaderModule(
+        device, VK_SHADER_STAGE_COMPUTE_BIT, upsweep_comp, {},
+        {{"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
+         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+
+    VkComputePipelineCreateInfo pipelineInfo = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    pipelineInfo.stage.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.pName = "main";
+    pipelineInfo.layout = pipelineLayout;
+
+    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+                             &upsweepPipeline);
+
+    vkDestroyShaderModule(device, pipelineModule, NULL);
+  }
+
+  VkPipeline spinePipeline;
+  {
+    VkShaderModule pipelineModule = CreateShaderModule(
+        device, VK_SHADER_STAGE_COMPUTE_BIT, spine_comp, {},
+        {{"SUBGROUP_SIZE", std::to_string(subgroupSize)},
+         {"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
+         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+
+    VkComputePipelineCreateInfo pipelineInfo = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    pipelineInfo.stage.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.pName = "main";
+    pipelineInfo.layout = pipelineLayout;
+
+    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+                             &spinePipeline);
+
+    vkDestroyShaderModule(device, pipelineModule, NULL);
+  }
+
+  VkPipeline downsweepPipeline;
+  VkPipeline downsweepKeyValuePipeline;
+  {
+    std::vector<VkShaderModule> pipelineModules(2);
+    pipelineModules[0] = CreateShaderModule(
+        device, VK_SHADER_STAGE_COMPUTE_BIT, downsweep_comp, {},
+        {{"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
+         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+    pipelineModules[1] = CreateShaderModule(
+        device, VK_SHADER_STAGE_COMPUTE_BIT, downsweep_comp, {"KEY_VALUE"},
+        {{"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
+         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+
+    std::vector<VkComputePipelineCreateInfo> pipelineInfos(2);
+    pipelineInfos[0] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    pipelineInfos[0].stage.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfos[0].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfos[0].stage.module = pipelineModules[0];
+    pipelineInfos[0].stage.pName = "main";
+    pipelineInfos[0].layout = pipelineLayout;
+
+    pipelineInfos[1] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    pipelineInfos[1].stage.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfos[1].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfos[1].stage.module = pipelineModules[1];
+    pipelineInfos[1].stage.pName = "main";
+    pipelineInfos[1].layout = pipelineLayout;
+
+    std::vector<VkPipeline> pipelines(pipelineInfos.size());
+    vkCreateComputePipelines(device, NULL, pipelineInfos.size(),
+                             pipelineInfos.data(), NULL, pipelines.data());
+    downsweepPipeline = pipelines[0];
+    downsweepKeyValuePipeline = pipelines[1];
+
+    for (auto pipelineModule : pipelineModules)
+      vkDestroyShaderModule(device, pipelineModule, NULL);
+  }
+
   *pSorterLayout = new VrdxSorterLayout_T();
   (*pSorterLayout)->device = device;
   (*pSorterLayout)->storageDescriptorSetLayout = storageDescriptorSetLayout;
   (*pSorterLayout)->inoutDescriptorSetLayout = inoutDescriptorSetLayout;
   (*pSorterLayout)->pipelineLayout = pipelineLayout;
+
   (*pSorterLayout)->histogramPipeline = histogramPipeline;
   (*pSorterLayout)->scanPipeline = scanPipeline;
   (*pSorterLayout)->binningPipeline = binningPipeline;
   (*pSorterLayout)->binningKeyValuePipeline = binningKeyValuePipeline;
-  (*pSorterLayout)->histogramWorkgroupSize = histogramWorkgroupSize;
+
+  (*pSorterLayout)->upsweepPipeline = upsweepPipeline;
+  (*pSorterLayout)->spinePipeline = spinePipeline;
+  (*pSorterLayout)->downsweepPipeline = downsweepPipeline;
+  (*pSorterLayout)->downsweepKeyValuePipeline = downsweepKeyValuePipeline;
+
+  (*pSorterLayout)->storageAlignment = storageAlignment;
+  (*pSorterLayout)->maxWorkgroupSize = maxWorkgroupSize;
 }
 
 void vrdxDestroySorterLayout(VrdxSorterLayout sorterLayout) {
@@ -356,6 +490,7 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
                       VrdxSorter* pSorter) {
   VrdxSorterLayout sorterLayout = pCreateInfo->sorterLayout;
   VkDevice device = sorterLayout->device;
+  uint32_t storageAlignment = sorterLayout->storageAlignment;
   VmaAllocator allocator = pCreateInfo->allocator;
   uint32_t maxElementCount = pCreateInfo->maxElementCount;
   uint32_t frameCount = pCreateInfo->maxCommandsInFlight;
@@ -402,23 +537,40 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
   }
 
   // storage
-  StorageOffsets storageOffsets;
-  VkDeviceSize histogramSize = HistogramSize();
+  VkDeviceSize onesweepHistogramSize = OnesweepHistogramSize();
+  VkDeviceSize twosweepHistogramSize = TwosweepHistogramSize(maxElementCount);
+  // TODO: combine onesweep histogram and lookback
   VkDeviceSize lookbackSize = LookbackSize(maxElementCount);
   VkDeviceSize elementCountSize = sizeof(uint32_t);
-  VkDeviceSize inoutSize = InoutSize(maxElementCount);
-
-  // TODO: align size from physical device
-  storageOffsets.histogramOffset = 0;
-  storageOffsets.lookbackOffset =
-      Align(storageOffsets.histogramOffset + histogramSize, 16);
-  storageOffsets.elementCountOffset =
-      Align(storageOffsets.lookbackOffset + lookbackSize, 16);
-  storageOffsets.outOffset =
-      Align(storageOffsets.elementCountOffset + elementCountSize, 16);
   // 2x for key value
-  VkDeviceSize storageSize =
-      Align(storageOffsets.outOffset + 2 * inoutSize, 16);
+  VkDeviceSize inoutSize = 2 * InoutSize(maxElementCount);
+
+  // align size from physical device
+  OnesweepStorageOffsets onesweepStorageOffsets;
+  onesweepStorageOffsets.histogramOffset = 0;
+  onesweepStorageOffsets.lookbackOffset =
+      Align(onesweepStorageOffsets.histogramOffset + onesweepHistogramSize,
+            storageAlignment);
+  onesweepStorageOffsets.elementCountOffset = Align(
+      onesweepStorageOffsets.lookbackOffset + lookbackSize, storageAlignment);
+  onesweepStorageOffsets.outOffset =
+      Align(onesweepStorageOffsets.elementCountOffset + elementCountSize,
+            storageAlignment);
+  VkDeviceSize onesweepStorageSize =
+      Align(onesweepStorageOffsets.outOffset + inoutSize, storageAlignment);
+
+  TwosweepStorageOffsets twosweepStorageOffsets;
+  twosweepStorageOffsets.histogramOffset = 0;
+  twosweepStorageOffsets.elementCountOffset =
+      Align(twosweepStorageOffsets.histogramOffset + twosweepHistogramSize,
+            storageAlignment);
+  twosweepStorageOffsets.outOffset =
+      Align(twosweepStorageOffsets.elementCountOffset + elementCountSize,
+            storageAlignment);
+  VkDeviceSize twosweepStorageSize =
+      Align(twosweepStorageOffsets.outOffset + inoutSize, storageAlignment);
+
+  VkDeviceSize storageSize = std::max(onesweepStorageSize, twosweepStorageSize);
 
   VkBuffer storage;
   VmaAllocation allocation;
@@ -444,7 +596,8 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
   (*pSorter)->outInDescriptors = std::move(outInDescriptors);
   (*pSorter)->storage = storage;
   (*pSorter)->allocation = allocation;
-  (*pSorter)->storageOffsets = storageOffsets;
+  (*pSorter)->onesweepStorageOffsets = onesweepStorageOffsets;
+  (*pSorter)->twosweepStorageOffsets = twosweepStorageOffsets;
 }
 
 void vrdxDestroySorter(VrdxSorter sorter) {
@@ -503,14 +656,15 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   uint32_t maxElementCount = sorter->maxElementCount;
   uint32_t partitionCount = RoundUp(maxElementCount, PARTITION_SIZE);
 
-  constexpr VkDeviceSize histogramSize = HistogramSize();
+  constexpr VkDeviceSize histogramSize = OnesweepHistogramSize();
   VkDeviceSize lookbackSize = LookbackSize(maxElementCount);
   VkDeviceSize inoutSize = InoutSize(maxElementCount);
 
-  VkDeviceSize histogramOffset = sorter->storageOffsets.histogramOffset;
-  VkDeviceSize lookbackOffset = sorter->storageOffsets.lookbackOffset;
-  VkDeviceSize elementCountOffset = sorter->storageOffsets.elementCountOffset;
-  VkDeviceSize outOffset = sorter->storageOffsets.outOffset;
+  VkDeviceSize histogramOffset = sorter->onesweepStorageOffsets.histogramOffset;
+  VkDeviceSize lookbackOffset = sorter->onesweepStorageOffsets.lookbackOffset;
+  VkDeviceSize elementCountOffset =
+      sorter->onesweepStorageOffsets.elementCountOffset;
+  VkDeviceSize outOffset = sorter->onesweepStorageOffsets.outOffset;
 
   // write descriptors
   std::vector<VkDescriptorBufferInfo> descriptorBuffers(5);
@@ -697,7 +851,7 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                           descriptors.data(), 0, nullptr);
 
   vkCmdDispatch(commandBuffer,
-                RoundUp(maxElementCount, layout->histogramWorkgroupSize), 1, 1);
+                RoundUp(maxElementCount, layout->maxWorkgroupSize), 1, 1);
 
   if (queryPool) {
     vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
