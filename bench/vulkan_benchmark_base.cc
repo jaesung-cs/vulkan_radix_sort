@@ -268,8 +268,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-              query_pool_, 0);
+  vrdxCmdSort(command_buffer_, sorter_, VRDX_SORT_METHOD_AUTO, element_count,
+              keys_.buffer, 0, query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -361,10 +361,10 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, keys_.buffer,
-                              2 * element_count * sizeof(uint32_t),
-                              keys_.buffer, 0, keys_.buffer,
-                              element_count * sizeof(uint32_t), query_pool_, 0);
+  vrdxCmdSortKeyValueIndirect(
+      command_buffer_, sorter_, VRDX_SORT_METHOD_AUTO, keys_.buffer,
+      2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
+      element_count * sizeof(uint32_t), query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};

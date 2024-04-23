@@ -111,10 +111,24 @@ VkShaderModule CreateShaderModule(
 }
 
 void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-             uint32_t elementCount, VkBuffer indirectBuffer,
-             VkDeviceSize indirectOffset, VkBuffer buffer, VkDeviceSize offset,
-             VkBuffer valueBuffer, VkDeviceSize valueOffset,
-             VkQueryPool queryPool, uint32_t query);
+             VrdxSortMethod sortMethod, uint32_t elementCount,
+             VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
+             VkBuffer buffer, VkDeviceSize offset, VkBuffer valueBuffer,
+             VkDeviceSize valueOffset, VkQueryPool queryPool, uint32_t query);
+
+void gpuSortOnesweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                     uint32_t elementCount, VkBuffer indirectBuffer,
+                     VkDeviceSize indirectOffset, VkBuffer buffer,
+                     VkDeviceSize offset, VkBuffer valueBuffer,
+                     VkDeviceSize valueOffset, VkQueryPool queryPool,
+                     uint32_t query);
+
+void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                     uint32_t elementCount, VkBuffer indirectBuffer,
+                     VkDeviceSize indirectOffset, VkBuffer buffer,
+                     VkDeviceSize offset, VkBuffer valueBuffer,
+                     VkDeviceSize valueOffset, VkQueryPool queryPool,
+                     uint32_t query);
 
 }  // namespace
 
@@ -607,46 +621,77 @@ void vrdxDestroySorter(VrdxSorter sorter) {
 }
 
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                 uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
-                 VkQueryPool queryPool, uint32_t query) {
-  gpuSort(commandBuffer, sorter, elementCount, NULL, 0, buffer, offset, NULL, 0,
-          queryPool, query);
-}
-
-void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                         VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
-                         VkBuffer buffer, VkDeviceSize offset,
-                         VkQueryPool queryPool, uint32_t query) {
-  gpuSort(commandBuffer, sorter, 0, indirectBuffer, indirectOffset, buffer,
+                 VrdxSortMethod sortMethod, uint32_t elementCount,
+                 VkBuffer buffer, VkDeviceSize offset, VkQueryPool queryPool,
+                 uint32_t query) {
+  gpuSort(commandBuffer, sorter, sortMethod, elementCount, NULL, 0, buffer,
           offset, NULL, 0, queryPool, query);
 }
 
-void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                         uint32_t elementCount, VkBuffer buffer,
-                         VkDeviceSize offset, VkBuffer valueBuffer,
-                         VkDeviceSize valueOffset, VkQueryPool queryPool,
+void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                         VrdxSortMethod sortMethod, VkBuffer indirectBuffer,
+                         VkDeviceSize indirectOffset, VkBuffer buffer,
+                         VkDeviceSize offset, VkQueryPool queryPool,
                          uint32_t query) {
-  gpuSort(commandBuffer, sorter, elementCount, NULL, 0, buffer, offset,
-          valueBuffer, valueOffset, queryPool, query);
+  gpuSort(commandBuffer, sorter, sortMethod, 0, indirectBuffer, indirectOffset,
+          buffer, offset, NULL, 0, queryPool, query);
+}
+
+void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                         VrdxSortMethod sortMethod, uint32_t elementCount,
+                         VkBuffer buffer, VkDeviceSize offset,
+                         VkBuffer valueBuffer, VkDeviceSize valueOffset,
+                         VkQueryPool queryPool, uint32_t query) {
+  gpuSort(commandBuffer, sorter, sortMethod, elementCount, NULL, 0, buffer,
+          offset, valueBuffer, valueOffset, queryPool, query);
 }
 
 void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
-                                 VrdxSorter sorter, VkBuffer indirectBuffer,
+                                 VrdxSorter sorter, VrdxSortMethod sortMethod,
+                                 VkBuffer indirectBuffer,
                                  VkDeviceSize indirectOffset, VkBuffer buffer,
                                  VkDeviceSize offset, VkBuffer valueBuffer,
                                  VkDeviceSize valueOffset,
                                  VkQueryPool queryPool, uint32_t query) {
-  gpuSort(commandBuffer, sorter, 0, indirectBuffer, indirectOffset, buffer,
-          offset, valueBuffer, valueOffset, queryPool, query);
+  gpuSort(commandBuffer, sorter, sortMethod, 0, indirectBuffer, indirectOffset,
+          buffer, offset, valueBuffer, valueOffset, queryPool, query);
 }
 
 namespace {
 
 void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-             uint32_t elementCount, VkBuffer indirectBuffer,
-             VkDeviceSize indirectOffset, VkBuffer buffer, VkDeviceSize offset,
-             VkBuffer valueBuffer, VkDeviceSize valueOffset,
-             VkQueryPool queryPool, uint32_t query) {
+             VrdxSortMethod sortMethod, uint32_t elementCount,
+             VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
+             VkBuffer buffer, VkDeviceSize offset, VkBuffer valueBuffer,
+             VkDeviceSize valueOffset, VkQueryPool queryPool, uint32_t query) {
+  if (sortMethod == VRDX_SORT_METHOD_AUTO) {
+    // TODO: select sort method.
+    // Onesweep for NVIDIA, twosweep for others.
+    // sortMethod = VRDX_SORT_METHOD_REDUCE_THEN_SCAN;
+    sortMethod = VRDX_SORT_METHOD_ONESWEEP;
+  }
+
+  switch (sortMethod) {
+    case VRDX_SORT_METHOD_ONESWEEP:
+      gpuSortOnesweep(commandBuffer, sorter, elementCount, indirectBuffer,
+                      indirectOffset, buffer, offset, valueBuffer, valueOffset,
+                      queryPool, query);
+      break;
+
+    case VRDX_SORT_METHOD_REDUCE_THEN_SCAN:
+      gpuSortTwosweep(commandBuffer, sorter, elementCount, indirectBuffer,
+                      indirectOffset, buffer, offset, valueBuffer, valueOffset,
+                      queryPool, query);
+      break;
+  }
+}
+
+void gpuSortOnesweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                     uint32_t elementCount, VkBuffer indirectBuffer,
+                     VkDeviceSize indirectOffset, VkBuffer buffer,
+                     VkDeviceSize offset, VkBuffer valueBuffer,
+                     VkDeviceSize valueOffset, VkQueryPool queryPool,
+                     uint32_t query) {
   VrdxSorterLayout layout = sorter->layout;
   uint32_t commandIndex = sorter->commandIndex;
   VkBuffer storage = sorter->storage;
@@ -1051,6 +1096,15 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   }
 
   sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
+}
+
+void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                     uint32_t elementCount, VkBuffer indirectBuffer,
+                     VkDeviceSize indirectOffset, VkBuffer buffer,
+                     VkDeviceSize offset, VkBuffer valueBuffer,
+                     VkDeviceSize valueOffset, VkQueryPool queryPool,
+                     uint32_t query) {
+  // TODO
 }
 
 }  // namespace

@@ -18,6 +18,12 @@ VK_DEFINE_HANDLE(VrdxSorterLayout)
  */
 VK_DEFINE_HANDLE(VrdxSorter)
 
+typedef enum VrdxSortMethod {
+  VRDX_SORT_METHOD_AUTO = 0,
+  VRDX_SORT_METHOD_ONESWEEP = 1,
+  VRDX_SORT_METHOD_REDUCE_THEN_SCAN = 2,
+} VrdxSortMethod;
+
 struct VrdxSorterLayoutCreateInfo {
   VkPhysicalDevice physicalDevice;
   VkDevice device;
@@ -53,19 +59,21 @@ void vrdxDestroySorter(VrdxSorter sorter);
  * query + 7: sort end timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
  */
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                 uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
-                 VkQueryPool queryPool, uint32_t query);
+                 VrdxSortMethod sortMethod, uint32_t elementCount,
+                 VkBuffer buffer, VkDeviceSize offset, VkQueryPool queryPool,
+                 uint32_t query);
 
 void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                         VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
-                         VkBuffer buffer, VkDeviceSize offset,
-                         VkQueryPool queryPool, uint32_t query);
+                         VrdxSortMethod sortMethod, VkBuffer indirectBuffer,
+                         VkDeviceSize indirectOffset, VkBuffer buffer,
+                         VkDeviceSize offset, VkQueryPool queryPool,
+                         uint32_t query);
 
 void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                         uint32_t elementCount, VkBuffer buffer,
-                         VkDeviceSize offset, VkBuffer valueBuffer,
-                         VkDeviceSize valueOffset, VkQueryPool queryPool,
-                         uint32_t query);
+                         VrdxSortMethod sortMethod, uint32_t elementCount,
+                         VkBuffer buffer, VkDeviceSize offset,
+                         VkBuffer valueBuffer, VkDeviceSize valueOffset,
+                         VkQueryPool queryPool, uint32_t query);
 
 /**
  * indirectBuffer contains elementCount.
@@ -79,7 +87,8 @@ void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
  * indirectBuffer requires TRANSFER_SRC buffer usage flag.
  */
 void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
-                                 VrdxSorter sorter, VkBuffer indirectBuffer,
+                                 VrdxSorter sorter, VrdxSortMethod sortMethod,
+                                 VkBuffer indirectBuffer,
                                  VkDeviceSize indirectOffset, VkBuffer buffer,
                                  VkDeviceSize offset, VkBuffer valueBuffer,
                                  VkDeviceSize valueOffset,
