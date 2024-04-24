@@ -171,7 +171,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   VkQueryPoolCreateInfo query_pool_info = {
       VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
   query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-  query_pool_info.queryCount = 8;
+  query_pool_info.queryCount = 15;
   vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
 
   // sorter
@@ -235,6 +235,10 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
     const std::vector<uint32_t>& keys) {
+  constexpr auto sort_method = VRDX_SORT_METHOD_ONESWEEP;
+  const auto timestamp_count =
+      sort_method == VRDX_SORT_METHOD_ONESWEEP ? 8 : 15;
+
   auto element_count = keys.size();
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -244,7 +248,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, 8);
+  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
   // copy to keys buffer
   VkBufferCopy region = {};
@@ -268,7 +272,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vrdxCmdSort(command_buffer_, sorter_, VRDX_SORT_METHOD_AUTO, element_count,
+  vrdxCmdSort(command_buffer_, sorter_, sort_method, element_count,
               keys_.buffer, 0, query_pool_, 0);
 
   // copy back
@@ -302,7 +306,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::vector<uint64_t> timestamps(8);
+  std::vector<uint64_t> timestamps(timestamp_count);
   vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
@@ -324,6 +328,10 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
+  constexpr auto sort_method = VRDX_SORT_METHOD_ONESWEEP;
+  const auto timestamp_count =
+      sort_method == VRDX_SORT_METHOD_ONESWEEP ? 8 : 15;
+
   auto element_count = keys.size();
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -337,7 +345,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, 8);
+  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
   // copy to keys buffer
   VkBufferCopy region = {};
@@ -362,7 +370,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
   vrdxCmdSortKeyValueIndirect(
-      command_buffer_, sorter_, VRDX_SORT_METHOD_AUTO, keys_.buffer,
+      command_buffer_, sorter_, sort_method, keys_.buffer,
       2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
       element_count * sizeof(uint32_t), query_pool_, 0);
 
@@ -397,7 +405,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::vector<uint64_t> timestamps(8);
+  std::vector<uint64_t> timestamps(timestamp_count);
   vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);

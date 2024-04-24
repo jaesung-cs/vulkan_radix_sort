@@ -18,7 +18,7 @@ layout (push_constant) uniform PushConstant {
 };
 
 layout (set = 0, binding = 1, std430) buffer Histogram {
-  uint globalHistogram[RADIX];  // (R)
+  uint globalHistogram[4 * RADIX];  // (4, R)
   uint partitionHistogram[];  // (P, R)
 };
 
@@ -40,6 +40,11 @@ void main() {
   uint partitionIndex = gl_WorkGroupID.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
+  // discard all workgroup invocations
+  if (partitionStart >= elementCount) {
+    return;
+  }
+
   if (index < RADIX) {
     localHistogram[index] = 0;
   }
@@ -59,7 +64,7 @@ void main() {
     partitionHistogram[RADIX * partitionIndex + index] = localHistogram[index];
 
     // add to global histogram
-    atomicAdd(globalHistogram[index], localHistogram[index]);
+    atomicAdd(globalHistogram[RADIX * pass + index], localHistogram[index]);
   }
 }
 

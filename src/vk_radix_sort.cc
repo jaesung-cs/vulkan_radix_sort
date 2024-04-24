@@ -1086,8 +1086,8 @@ void gpuSortOnesweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                                             VK_ACCESS_2_SHADER_WRITE_BIT |
                                             VK_ACCESS_2_TRANSFER_WRITE_BIT;
     bufferMemoryBarriers[0].buffer = storage;
-    bufferMemoryBarriers[0].offset = lookbackOffset;
-    bufferMemoryBarriers[0].size = lookbackSize;
+    bufferMemoryBarriers[0].offset = 0;
+    bufferMemoryBarriers[0].size = VK_WHOLE_SIZE;
 
     dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
@@ -1104,7 +1104,363 @@ void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                      VkDeviceSize offset, VkBuffer valueBuffer,
                      VkDeviceSize valueOffset, VkQueryPool queryPool,
                      uint32_t query) {
-  // TODO
+  VrdxSorterLayout layout = sorter->layout;
+  uint32_t commandIndex = sorter->commandIndex;
+  VkBuffer storage = sorter->storage;
+  VkDescriptorSet storageDescriptor = sorter->storageDescriptors[commandIndex];
+  VkDescriptorSet inOutDescriptor = sorter->inOutDescriptors[commandIndex];
+  VkDescriptorSet outInDescriptor = sorter->outInDescriptors[commandIndex];
+  uint32_t maxElementCount = sorter->maxElementCount;
+  uint32_t partitionCount = RoundUp(maxElementCount, PARTITION_SIZE);
+
+  VkDeviceSize histogramSize =
+      TwosweepHistogramSize(indirectBuffer ? maxElementCount : elementCount);
+  VkDeviceSize inoutSize =
+      InoutSize(indirectBuffer ? maxElementCount : elementCount);
+
+  const auto& storageOffsets = sorter->twosweepStorageOffsets;
+
+  // write descriptors
+  std::vector<VkDescriptorBufferInfo> descriptorBuffers(4);
+  descriptorBuffers[0].buffer = sorter->storage;
+  descriptorBuffers[0].offset = storageOffsets.histogramOffset;
+  descriptorBuffers[0].range = histogramSize;
+
+  descriptorBuffers[1].buffer = sorter->storage;
+  descriptorBuffers[1].offset = storageOffsets.elementCountOffset;
+  descriptorBuffers[1].range = sizeof(uint32_t);
+
+  descriptorBuffers[2].buffer = buffer;
+  descriptorBuffers[2].offset = offset;
+  descriptorBuffers[2].range = inoutSize;
+
+  descriptorBuffers[3].buffer = sorter->storage;
+  descriptorBuffers[3].offset = storageOffsets.outOffset;
+  descriptorBuffers[3].range = inoutSize;
+
+  if (valueBuffer) {
+    descriptorBuffers.resize(6);
+
+    descriptorBuffers[4].buffer = valueBuffer;
+    descriptorBuffers[4].offset = valueOffset;
+    descriptorBuffers[4].range = inoutSize;
+
+    descriptorBuffers[5].buffer = sorter->storage;
+    descriptorBuffers[5].offset = storageOffsets.outOffset + inoutSize;
+    descriptorBuffers[5].range = inoutSize;
+  }
+
+  std::vector<VkWriteDescriptorSet> writes(6);
+  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[0].dstSet = storageDescriptor;
+  writes[0].dstBinding = 0;
+  writes[0].dstArrayElement = 0;
+  writes[0].descriptorCount = 1;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[0].pBufferInfo = &descriptorBuffers[0];
+
+  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[1].dstSet = storageDescriptor;
+  writes[1].dstBinding = 1;
+  writes[1].dstArrayElement = 0;
+  writes[1].descriptorCount = 1;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[1].pBufferInfo = &descriptorBuffers[1];
+
+  writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[2].dstSet = inOutDescriptor;
+  writes[2].dstBinding = 0;
+  writes[2].dstArrayElement = 0;
+  writes[2].descriptorCount = 1;
+  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[2].pBufferInfo = &descriptorBuffers[2];
+
+  writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[3].dstSet = inOutDescriptor;
+  writes[3].dstBinding = 1;
+  writes[3].dstArrayElement = 0;
+  writes[3].descriptorCount = 1;
+  writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[3].pBufferInfo = &descriptorBuffers[3];
+
+  writes[4] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[4].dstSet = outInDescriptor;
+  writes[4].dstBinding = 0;
+  writes[4].dstArrayElement = 0;
+  writes[4].descriptorCount = 1;
+  writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[4].pBufferInfo = &descriptorBuffers[3];
+
+  writes[5] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[5].dstSet = outInDescriptor;
+  writes[5].dstBinding = 1;
+  writes[5].dstArrayElement = 0;
+  writes[5].descriptorCount = 1;
+  writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[5].pBufferInfo = &descriptorBuffers[2];
+
+  if (valueBuffer) {
+    writes.resize(10);
+
+    writes[6] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[6].dstSet = inOutDescriptor;
+    writes[6].dstBinding = 2;
+    writes[6].dstArrayElement = 0;
+    writes[6].descriptorCount = 1;
+    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[6].pBufferInfo = &descriptorBuffers[4];
+
+    writes[7] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[7].dstSet = inOutDescriptor;
+    writes[7].dstBinding = 3;
+    writes[7].dstArrayElement = 0;
+    writes[7].descriptorCount = 1;
+    writes[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[7].pBufferInfo = &descriptorBuffers[5];
+
+    writes[8] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[8].dstSet = outInDescriptor;
+    writes[8].dstBinding = 2;
+    writes[8].dstArrayElement = 0;
+    writes[8].descriptorCount = 1;
+    writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[8].pBufferInfo = &descriptorBuffers[5];
+
+    writes[9] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    writes[9].dstSet = outInDescriptor;
+    writes[9].dstBinding = 3;
+    writes[9].dstArrayElement = 0;
+    writes[9].descriptorCount = 1;
+    writes[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[9].pBufferInfo = &descriptorBuffers[4];
+  }
+
+  vkUpdateDescriptorSets(layout->device, writes.size(), writes.data(), 0, NULL);
+
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         queryPool, query + 0);
+  }
+
+  if (indirectBuffer) {
+    // copy elementCount
+    VkBufferCopy region;
+    region.srcOffset = indirectOffset;
+    region.dstOffset = storageOffsets.elementCountOffset;
+    region.size = sizeof(uint32_t);
+    vkCmdCopyBuffer(commandBuffer, indirectBuffer, storage, 1, &region);
+  } else {
+    // set element count
+    vkCmdUpdateBuffer(commandBuffer, storage, storageOffsets.elementCountOffset,
+                      sizeof(elementCount), &elementCount);
+  }
+
+  // reset global histogram. partition histogram is set by shader.
+  vkCmdFillBuffer(commandBuffer, storage, storageOffsets.histogramOffset,
+                  4 * RADIX * sizeof(uint32_t), 0);
+
+  std::vector<VkBufferMemoryBarrier2> bufferMemoryBarriers(2);
+
+  bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  bufferMemoryBarriers[0].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  bufferMemoryBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  bufferMemoryBarriers[0].buffer = storage;
+  bufferMemoryBarriers[0].offset = storageOffsets.elementCountOffset;
+  bufferMemoryBarriers[0].size = sizeof(uint32_t);
+
+  bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+  bufferMemoryBarriers[1].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  bufferMemoryBarriers[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  bufferMemoryBarriers[1].buffer = storage;
+  bufferMemoryBarriers[1].offset = storageOffsets.histogramOffset;
+  bufferMemoryBarriers[1].size = 4 * RADIX * sizeof(uint32_t);
+
+  VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+  dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+  vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+
+  // set 0: storage
+  std::vector<VkDescriptorSet> descriptors = {storageDescriptor};
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          layout->pipelineLayout, 0, descriptors.size(),
+                          descriptors.data(), 0, nullptr);
+
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                         queryPool, query + 1);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    PushConstants pushConstants;
+    pushConstants.pass = i;
+    vkCmdPushConstants(commandBuffer, layout->pipelineLayout,
+                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConstants),
+                       &pushConstants);
+
+    // set 1: in->out or out->in descriptor
+    VkDescriptorSet descriptor = i % 2 == 0 ? inOutDescriptor : outInDescriptor;
+    std::vector<VkDescriptorSet> descriptors = {descriptor};
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            layout->pipelineLayout, 1, descriptors.size(),
+                            descriptors.data(), 0, nullptr);
+
+    // upsweep
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      layout->upsweepPipeline);
+
+    vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
+
+    if (queryPool) {
+      vkCmdWriteTimestamp2(commandBuffer,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, queryPool,
+                           query + 2 + 3 * i + 0);
+    }
+
+    // spine
+    bufferMemoryBarriers.resize(1);
+    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    bufferMemoryBarriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    bufferMemoryBarriers[0].dstStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    bufferMemoryBarriers[0].buffer = storage;
+    bufferMemoryBarriers[0].offset = storageOffsets.histogramOffset;
+    bufferMemoryBarriers[0].size = histogramSize;
+    dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+    dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      layout->spinePipeline);
+
+    vkCmdDispatch(commandBuffer, RADIX, 1, 1);
+
+    if (queryPool) {
+      vkCmdWriteTimestamp2(commandBuffer,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, queryPool,
+                           query + 2 + 3 * i + 1);
+    }
+
+    // downsweep
+    bufferMemoryBarriers.resize(1);
+    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    bufferMemoryBarriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    bufferMemoryBarriers[0].dstStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    bufferMemoryBarriers[0].buffer = storage;
+    bufferMemoryBarriers[0].offset = storageOffsets.histogramOffset;
+    bufferMemoryBarriers[0].size = histogramSize;
+    dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+    dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+
+    if (valueBuffer) {
+      vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        layout->downsweepKeyValuePipeline);
+    } else {
+      vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        layout->downsweepPipeline);
+    }
+
+    vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
+
+    if (queryPool) {
+      vkCmdWriteTimestamp2(commandBuffer,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, queryPool,
+                           query + 2 + 3 * i + 2);
+    }
+
+    if (i < 3) {
+      bufferMemoryBarriers.resize(2);
+
+      bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+      bufferMemoryBarriers[0].srcStageMask =
+          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+      bufferMemoryBarriers[0].dstStageMask =
+          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      bufferMemoryBarriers[0].buffer = storage;
+      bufferMemoryBarriers[0].offset = storageOffsets.histogramOffset;
+      bufferMemoryBarriers[0].size = histogramSize;
+
+      bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+      bufferMemoryBarriers[1].srcStageMask =
+          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+      bufferMemoryBarriers[1].dstStageMask =
+          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      bufferMemoryBarriers[1].buffer = i % 2 == 0 ? storage : buffer;
+      bufferMemoryBarriers[1].offset =
+          i % 2 == 0 ? storageOffsets.outOffset : offset;
+      bufferMemoryBarriers[1].size = inoutSize;
+
+      if (valueBuffer) {
+        bufferMemoryBarriers.resize(3);
+        bufferMemoryBarriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+        bufferMemoryBarriers[2].srcStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bufferMemoryBarriers[2].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        bufferMemoryBarriers[2].dstStageMask =
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bufferMemoryBarriers[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        bufferMemoryBarriers[2].buffer = i % 2 == 0 ? storage : valueBuffer;
+        bufferMemoryBarriers[2].offset =
+            i % 2 == 0 ? storageOffsets.outOffset + inoutSize : valueOffset;
+        bufferMemoryBarriers[2].size = inoutSize;
+      }
+
+      dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+      dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+      vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+    }
+  }
+
+  if (queryPool) {
+    vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         queryPool, query + 14);
+  }
+
+  // barrier between next command
+  {
+    bufferMemoryBarriers.resize(1);
+
+    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+    bufferMemoryBarriers[0].srcStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].dstStageMask =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT |
+                                            VK_ACCESS_2_SHADER_WRITE_BIT |
+                                            VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    bufferMemoryBarriers[0].buffer = storage;
+    bufferMemoryBarriers[0].offset = 0;
+    bufferMemoryBarriers[0].size = VK_WHOLE_SIZE;
+
+    dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.bufferMemoryBarrierCount = bufferMemoryBarriers.size();
+    dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+  }
 }
 
 }  // namespace

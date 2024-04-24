@@ -19,8 +19,8 @@ layout (push_constant) uniform PushConstant {
   int pass;
 };
 
-layout (set = 0, binding = 1, std430) buffer Histogram {
-  uint globalHistogram[RADIX];  // (R)
+layout (set = 0, binding = 1, std430) readonly buffer Histogram {
+  uint globalHistogram[4 * RADIX];  // (4, R)
   uint partitionHistogram[];  // (P, R)
 };
 
@@ -192,7 +192,7 @@ void main() {
   // after atomicAdd, localHistogram contains inclusive sum
   if (index < RADIX) {
     uint v = localHistogram[gl_NumSubgroups * (index + 1) - 1];
-    localHistogramSum[index] = globalHistogram[index] + partitionHistogram[RADIX * partitionIndex + index] - v;
+    localHistogramSum[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   barrier();
 

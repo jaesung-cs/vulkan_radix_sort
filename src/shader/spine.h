@@ -17,8 +17,12 @@ const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 // dispatch this shader (RADIX, 1, 1), so that gl_WorkGroupID.x is radix
 layout (local_size_x = WORKGROUP_SIZE) in;
 
+layout (push_constant) uniform PushConstant {
+  int pass;
+};
+
 layout (set = 0, binding = 1, std430) buffer Histogram {
-  uint globalHistogram[RADIX];  // (R)
+  uint globalHistogram[4 * RADIX];  // (4, R)
   uint partitionHistogram[];  // (P, R)
 };
 
@@ -39,7 +43,7 @@ void main() {
   if (gl_WorkGroupID.x == 0) {
     // one workgroup is responsible for global histogram prefix sum
     if (index < RADIX) {
-      uint value = globalHistogram[index];
+      uint value = globalHistogram[RADIX * pass + index];
       uint excl = subgroupExclusiveAdd(value);
       uint sum = subgroupAdd(value);
 
@@ -55,7 +59,7 @@ void main() {
       barrier();
 
       excl += intermediate[subgroupIndex];
-      globalHistogram[index] = excl;
+      globalHistogram[RADIX * pass + index] = excl;
     }
   }
 
