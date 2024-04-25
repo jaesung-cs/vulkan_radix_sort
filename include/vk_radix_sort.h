@@ -19,9 +19,17 @@ VK_DEFINE_HANDLE(VrdxSorterLayout)
 VK_DEFINE_HANDLE(VrdxSorter)
 
 typedef enum VrdxSortMethod {
-  VRDX_SORT_METHOD_AUTO = 0,
+  /**
+   * Recommended.
+   */
+  VRDX_SORT_METHOD_REDUCE_THEN_SCAN = 0,
+
+  /**
+   * It seems works only on NVidia GPUs.
+   *
+   * Not recommended. You can set this on other devices, but may lead to crash.
+   */
   VRDX_SORT_METHOD_ONESWEEP = 1,
-  VRDX_SORT_METHOD_REDUCE_THEN_SCAN = 2,
 } VrdxSortMethod;
 
 struct VrdxSorterLayoutCreateInfo {

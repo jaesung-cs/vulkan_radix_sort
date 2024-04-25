@@ -672,13 +672,6 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
              VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
              VkBuffer buffer, VkDeviceSize offset, VkBuffer valueBuffer,
              VkDeviceSize valueOffset, VkQueryPool queryPool, uint32_t query) {
-  if (sortMethod == VRDX_SORT_METHOD_AUTO) {
-    // TODO: select sort method.
-    // Onesweep for NVIDIA, twosweep for others.
-    // sortMethod = VRDX_SORT_METHOD_REDUCE_THEN_SCAN;
-    sortMethod = VRDX_SORT_METHOD_ONESWEEP;
-  }
-
   switch (sortMethod) {
     case VRDX_SORT_METHOD_ONESWEEP:
       gpuSortOnesweep(commandBuffer, sorter, elementCount, indirectBuffer,

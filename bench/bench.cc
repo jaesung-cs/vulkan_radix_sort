@@ -8,6 +8,7 @@
 int main() {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
+  // target: 15 GItems/s for key, 11 GItems/s for kv sort, 4.19e6 items (A100)
   int size = 4190000;
   auto data = GenerateUniformRandomData(size);
 
