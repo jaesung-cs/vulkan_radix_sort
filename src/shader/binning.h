@@ -53,11 +53,9 @@ layout (set = 1, binding = 2) readonly buffer Values {
 layout (set = 1, binding = 3) writeonly buffer OutValues {
   uint outValues[];  // (N)
 };
-
-const uint SHMEM_SIZE = 2 * PARTITION_SIZE;
-#else
-const uint SHMEM_SIZE = PARTITION_SIZE;
 #endif
+
+const uint SHMEM_SIZE = PARTITION_SIZE;
 
 // Onesweep lookback status. 0xc = 0b1100 for GLOBAL_SUM, for |(or) operator.
 #define LOCAL_COUNT 0x40000000u
@@ -276,12 +274,26 @@ void main() {
     uint dstOffset = localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {
       outKeys[dstOffset] = key;
+    }
 
 #ifdef KEY_VALUE
-      outValues[dstOffset] = localHistogram[PARTITION_SIZE + i];
+    localKeys[i / WORKGROUP_SIZE] = dstOffset;
 #endif
-    }
   }
+
+#ifdef KEY_VALUE
+  barrier();
+
+  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
+    localHistogram[localOffsets[i]] = localValues[i];
+  }
+  barrier();
+
+  for (uint i = index; i < PARTITION_SIZE; i += WORKGROUP_SIZE) {
+    uint value = localHistogram[i];
+    outValues[localKeys[i / WORKGROUP_SIZE]] = value;
+  }
+#endif
 }
 
 )shader";

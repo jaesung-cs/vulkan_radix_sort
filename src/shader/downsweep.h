@@ -44,13 +44,11 @@ layout (set = 1, binding = 2) readonly buffer Values {
 layout (set = 1, binding = 3) writeonly buffer OutValues {
   uint outValues[];  // (N)
 };
-
-const uint SHMEM_SIZE = 2 * PARTITION_SIZE;
-#else
-const uint SHMEM_SIZE = PARTITION_SIZE;
 #endif
 
-shared uint localHistogram[SHMEM_SIZE];  // (R, S=16)=4096, (P), or (2P) for alias. take maximum.
+const uint SHMEM_SIZE = PARTITION_SIZE;
+
+shared uint localHistogram[SHMEM_SIZE];  // (R, S=16)=4096, (P) for alias. take maximum.
 shared uint localHistogramSum[RADIX];
 
 // returns 0b00000....11111, where msb is id-1.
@@ -203,10 +201,6 @@ void main() {
   // now localHistogram is unused, so alias memory.
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     localHistogram[localOffsets[i]] = localKeys[i];
-
-#ifdef KEY_VALUE
-    localHistogram[PARTITION_SIZE + localOffsets[i]] = localValues[i];
-#endif
   }
   barrier();
 
@@ -217,12 +211,26 @@ void main() {
     uint dstOffset = localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {
       outKeys[dstOffset] = key;
+    }
 
 #ifdef KEY_VALUE
-      outValues[dstOffset] = localHistogram[PARTITION_SIZE + i];
+    localKeys[i / WORKGROUP_SIZE] = dstOffset;
 #endif
-    }
   }
+
+#ifdef KEY_VALUE
+  barrier();
+
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
+    localHistogram[localOffsets[i]] = localValues[i];
+  }
+  barrier();
+
+  for (uint i = index; i < PARTITION_SIZE; i += WORKGROUP_SIZE) {
+    uint value = localHistogram[i];
+    outValues[localKeys[i / WORKGROUP_SIZE]] = value;
+  }
+#endif
 }
 
 )shader";
