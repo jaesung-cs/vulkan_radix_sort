@@ -235,7 +235,7 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
     const std::vector<uint32_t>& keys) {
-  constexpr auto sort_method = VRDX_SORT_METHOD_ONESWEEP;
+  constexpr auto sort_method = VRDX_SORT_METHOD_REDUCE_THEN_SCAN;
   const auto timestamp_count =
       sort_method == VRDX_SORT_METHOD_ONESWEEP ? 8 : 15;
 
@@ -315,20 +315,27 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   result.keys[3].resize(element_count);
   std::memcpy(result.keys[3].data(), staging_.map,
               element_count * sizeof(uint32_t));
-  result.total_time = timestamps[7] - timestamps[0];
-  result.histogram_time = timestamps[1] - timestamps[0];
-  result.scan_time = timestamps[2] - timestamps[1];
+  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
   result.binning_times.resize(4);
-  result.binning_times[0] = timestamps[3] - timestamps[2];
-  result.binning_times[1] = timestamps[4] - timestamps[3];
-  result.binning_times[2] = timestamps[5] - timestamps[4];
-  result.binning_times[3] = timestamps[6] - timestamps[5];
+  if (sort_method == VRDX_SORT_METHOD_ONESWEEP) {
+    result.histogram_time = timestamps[1] - timestamps[0];
+    result.scan_time = timestamps[2] - timestamps[1];
+    result.binning_times[0] = timestamps[3] - timestamps[2];
+    result.binning_times[1] = timestamps[4] - timestamps[3];
+    result.binning_times[2] = timestamps[5] - timestamps[4];
+    result.binning_times[3] = timestamps[6] - timestamps[5];
+  } else if (sort_method == VRDX_SORT_METHOD_REDUCE_THEN_SCAN) {
+    result.reduce_then_scan_times.resize(14);
+    for (int i = 0; i < 14; ++i) {
+      result.reduce_then_scan_times[i] = timestamps[i + 1] - timestamps[i];
+    }
+  }
   return result;
 }
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
-  constexpr auto sort_method = VRDX_SORT_METHOD_ONESWEEP;
+  constexpr auto sort_method = VRDX_SORT_METHOD_REDUCE_THEN_SCAN;
   const auto timestamp_count =
       sort_method == VRDX_SORT_METHOD_ONESWEEP ? 8 : 15;
 
@@ -418,13 +425,20 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   std::memcpy(result.values.data(),
               staging_.map + element_count * sizeof(uint32_t),
               element_count * sizeof(uint32_t));
-  result.total_time = timestamps[7] - timestamps[0];
-  result.histogram_time = timestamps[1] - timestamps[0];
-  result.scan_time = timestamps[2] - timestamps[1];
+  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
   result.binning_times.resize(4);
-  result.binning_times[0] = timestamps[3] - timestamps[2];
-  result.binning_times[1] = timestamps[4] - timestamps[3];
-  result.binning_times[2] = timestamps[5] - timestamps[4];
-  result.binning_times[3] = timestamps[6] - timestamps[5];
+  if (sort_method == VRDX_SORT_METHOD_ONESWEEP) {
+    result.histogram_time = timestamps[1] - timestamps[0];
+    result.scan_time = timestamps[2] - timestamps[1];
+    result.binning_times[0] = timestamps[3] - timestamps[2];
+    result.binning_times[1] = timestamps[4] - timestamps[3];
+    result.binning_times[2] = timestamps[5] - timestamps[4];
+    result.binning_times[3] = timestamps[6] - timestamps[5];
+  } else if (sort_method == VRDX_SORT_METHOD_REDUCE_THEN_SCAN) {
+    result.reduce_then_scan_times.resize(14);
+    for (int i = 0; i < 14; ++i) {
+      result.reduce_then_scan_times[i] = timestamps[i + 1] - timestamps[i];
+    }
+  }
   return result;
 }

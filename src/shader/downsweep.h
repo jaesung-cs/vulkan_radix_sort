@@ -77,6 +77,8 @@ void main() {
   uint partitionIndex = gl_WorkGroupID.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
+  if (partitionStart >= elementCount) return;
+
   if (index < RADIX) {
     for (int i = 0; i < gl_NumSubgroups; ++i) {
       localHistogram[gl_NumSubgroups * index + i] = 0;
@@ -130,6 +132,7 @@ void main() {
 
     localOffsets[i] = subgroupOffset;
   }
+  barrier();
   
   // local histogram reduce 4096
   for (uint i = index; i < RADIX * gl_NumSubgroups; i += WORKGROUP_SIZE) {
@@ -191,7 +194,7 @@ void main() {
 
   // after atomicAdd, localHistogram contains inclusive sum
   if (index < RADIX) {
-    uint v = localHistogram[gl_NumSubgroups * (index + 1) - 1];
+    uint v = index == 0 ? 0 : localHistogram[gl_NumSubgroups * index - 1];
     localHistogramSum[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   barrier();

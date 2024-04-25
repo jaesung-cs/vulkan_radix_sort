@@ -30,7 +30,7 @@ constexpr VkDeviceSize OnesweepHistogramSize() {
 }
 
 VkDeviceSize TwosweepHistogramSize(uint32_t elementCount) {
-  return (RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) *
+  return (4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) *
          sizeof(uint32_t);
 }
 
@@ -491,6 +491,14 @@ void vrdxDestroySorterLayout(VrdxSorterLayout sorterLayout) {
   vkDestroyPipeline(sorterLayout->device, sorterLayout->binningPipeline, NULL);
   vkDestroyPipeline(sorterLayout->device, sorterLayout->binningKeyValuePipeline,
                     NULL);
+
+  vkDestroyPipeline(sorterLayout->device, sorterLayout->upsweepPipeline, NULL);
+  vkDestroyPipeline(sorterLayout->device, sorterLayout->spinePipeline, NULL);
+  vkDestroyPipeline(sorterLayout->device, sorterLayout->downsweepPipeline,
+                    NULL);
+  vkDestroyPipeline(sorterLayout->device,
+                    sorterLayout->downsweepKeyValuePipeline, NULL);
+
   vkDestroyPipelineLayout(sorterLayout->device, sorterLayout->pipelineLayout,
                           NULL);
   vkDestroyDescriptorSetLayout(sorterLayout->device,
@@ -951,7 +959,7 @@ void gpuSortOnesweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                       layout->binningPipeline);
   }
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 4; ++i) {
     // clear lookback buffer
     vkCmdFillBuffer(commandBuffer, storage, lookbackOffset, lookbackSize, 0);
 
@@ -1111,12 +1119,11 @@ void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   VkDescriptorSet inOutDescriptor = sorter->inOutDescriptors[commandIndex];
   VkDescriptorSet outInDescriptor = sorter->outInDescriptors[commandIndex];
   uint32_t maxElementCount = sorter->maxElementCount;
-  uint32_t partitionCount = RoundUp(maxElementCount, PARTITION_SIZE);
+  uint32_t partitionCount =
+      RoundUp(indirectBuffer ? maxElementCount : elementCount, PARTITION_SIZE);
 
-  VkDeviceSize histogramSize =
-      TwosweepHistogramSize(indirectBuffer ? maxElementCount : elementCount);
-  VkDeviceSize inoutSize =
-      InoutSize(indirectBuffer ? maxElementCount : elementCount);
+  VkDeviceSize histogramSize = TwosweepHistogramSize(maxElementCount);
+  VkDeviceSize inoutSize = InoutSize(maxElementCount);
 
   const auto& storageOffsets = sorter->twosweepStorageOffsets;
 
@@ -1153,7 +1160,7 @@ void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   std::vector<VkWriteDescriptorSet> writes(6);
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[0].dstSet = storageDescriptor;
-  writes[0].dstBinding = 0;
+  writes[0].dstBinding = 1;
   writes[0].dstArrayElement = 0;
   writes[0].descriptorCount = 1;
   writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1161,7 +1168,7 @@ void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
 
   writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[1].dstSet = storageDescriptor;
-  writes[1].dstBinding = 1;
+  writes[1].dstBinding = 2;
   writes[1].dstArrayElement = 0;
   writes[1].descriptorCount = 1;
   writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1295,7 +1302,7 @@ void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                          queryPool, query + 1);
   }
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 4; ++i) {
     PushConstants pushConstants;
     pushConstants.pass = i;
     vkCmdPushConstants(commandBuffer, layout->pipelineLayout,
@@ -1461,6 +1468,8 @@ void gpuSortTwosweep(VkCommandBuffer commandBuffer, VrdxSorter sorter,
     dependencyInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
     vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
   }
+
+  sorter->commandIndex = (commandIndex + 1) % sorter->maxCommandsInFlight;
 }
 
 }  // namespace

@@ -30,15 +30,50 @@ layout (set = 0, binding = 2) readonly buffer ElementCount {
   uint elementCount;
 };
 
+shared uint reduction;
 shared uint intermediate[SUBGROUP_SIZE];
 
 void main() {
   uint threadIndex = gl_SubgroupInvocationID;  // 0..31
-  uint subgroupIndex = gl_SubgroupID;  // 0..31
+  uint subgroupIndex = gl_SubgroupID;  // 0..15
   uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
   uint radix = gl_WorkGroupID.x;
 
   uint partitionCount = (elementCount + PARTITION_SIZE - 1) / PARTITION_SIZE;
+
+  if (index == 0) {
+    reduction = 0;
+  }
+  barrier();
+
+  for (uint i = 0; WORKGROUP_SIZE * i < partitionCount; ++i) {
+    uint partitionIndex = WORKGROUP_SIZE * i + index;
+    uint value = partitionIndex < partitionCount ? partitionHistogram[RADIX * partitionIndex + radix] : 0;
+    uint excl = subgroupExclusiveAdd(value) + reduction;
+    uint sum = subgroupAdd(value);
+
+    if (subgroupElect()) {
+      intermediate[subgroupIndex] = sum;
+    }
+    barrier();
+
+    if (index < gl_NumSubgroups) {
+      uint excl = subgroupExclusiveAdd(intermediate[index]);
+      uint sum = subgroupAdd(intermediate[index]);
+      intermediate[index] = excl;
+
+      if (index == 0) {
+        reduction += sum;
+      }
+    }
+    barrier();
+
+    if (partitionIndex < partitionCount) {
+      excl += intermediate[subgroupIndex];
+      partitionHistogram[RADIX * partitionIndex + radix] = excl;
+    }
+    barrier();
+  }
 
   if (gl_WorkGroupID.x == 0) {
     // one workgroup is responsible for global histogram prefix sum
@@ -61,28 +96,6 @@ void main() {
       excl += intermediate[subgroupIndex];
       globalHistogram[RADIX * pass + index] = excl;
     }
-  }
-
-  for (uint i = index; i < partitionCount; i += WORKGROUP_SIZE) {
-    // only for active invocations, index consecutive from 0..j. good for subgroup operations below.
-    uint value = partitionHistogram[RADIX * i + radix];
-    uint excl = subgroupExclusiveAdd(value);
-    uint sum = subgroupAdd(value);
-
-    if (subgroupElect()) {
-      intermediate[subgroupIndex] = sum;
-    }
-    barrier();
-
-    if (index < gl_SubgroupSize) {
-      uint excl = subgroupExclusiveAdd(intermediate[index]);
-      intermediate[index] = excl;
-    }
-    barrier();
-
-    excl += intermediate[subgroupIndex];
-    partitionHistogram[RADIX * i + radix] = sum;
-    barrier();
   }
 }
 

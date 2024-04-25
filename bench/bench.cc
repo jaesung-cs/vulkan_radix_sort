@@ -52,10 +52,13 @@ int main() {
               << std::endl;
 
     bool diff = false;
+    int diff_location = -1;
     for (int j = 0; j < result0.keys[3].size(); ++j) {
       if (result0.keys[3][j] != result1.keys[3][j]) {
         diff = true;
-        break;
+        if (diff_location == -1) {
+          diff_location = j;
+        }
       }
     }
 
@@ -63,9 +66,27 @@ int main() {
       std::cout << std::endl;
       std::cout << "wrong" << std::endl;
       std::cout << std::endl;
+      std::cout << "first location " << diff_location << std::endl;
       std::cout << "pass 3:" << std::endl;
       std::cout << std::hex;
-      for (int j = 0; j < result1.keys[3].size() && j < 16; ++j)
+      for (int j = diff_location;
+           j < result0.keys[3].size() && j < diff_location + 16; ++j)
+        std::cout << std::setfill('0') << std::setw(8) << result0.keys[3][j]
+                  << " ";
+      std::cout << std::endl;
+      for (int j = diff_location;
+           j < result1.keys[3].size() && j < diff_location + 16; ++j)
+        std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
+                  << " ";
+      std::cout << std::dec << std::endl;
+
+      std::cout << "pass 3:" << std::endl;
+      std::cout << std::hex;
+      for (int j = std::max(size - 16, 0); j < size; ++j)
+        std::cout << std::setfill('0') << std::setw(8) << result0.keys[3][j]
+                  << " ";
+      std::cout << std::endl;
+      for (int j = std::max(size - 16, 0); j < size; ++j)
         std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
                   << " ";
       std::cout << std::dec << std::endl;
@@ -176,7 +197,7 @@ int main() {
     std::cout << "================ sort key value speed ================"
               << std::endl;
 
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 100; ++i) {
       auto data = GenerateUniformRandomData(size);
       auto result1 = vulkan_benchmark.SortKeyValue(data.keys, data.values);
 
@@ -204,6 +225,14 @@ int main() {
       std::cout << "binning3 time: "
                 << static_cast<double>(result1.binning_times[3]) / 1e6 << "ms"
                 << std::endl;
+
+      // TODO: reduce-then-scan spine is bottleneck
+      for (int i = 0; i < result1.reduce_then_scan_times.size(); ++i) {
+        std::cout << "reduce-then-scan time " << i << ": "
+                  << static_cast<double>(result1.reduce_then_scan_times[i]) /
+                         1e6
+                  << "ms" << std::endl;
+      }
     }
   }
 
