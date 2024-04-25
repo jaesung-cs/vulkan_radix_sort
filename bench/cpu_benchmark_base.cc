@@ -21,7 +21,7 @@ CpuBenchmarkBase::IntermediateResults CpuBenchmarkBase::GlobalHistogram(
   IntermediateResults result;
   result.histogram.resize(RADIX * 4);
   for (int i = 0; i < 4; ++i) {
-    for (int j = 0; j < keys.size(); j++) {
+    for (int j = 0; j < keys.size(); ++j) {
       uint32_t radix = bitfieldExtract(keys[j], 8 * i, 8);
       result.histogram[RADIX * i + radix]++;
     }
