@@ -38,7 +38,7 @@ void main() {
 
   if (index < RADIX / gl_SubgroupSize) {
     #pragma unroll
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; ++i) {
       uint value = scanIntermediate[gl_NumSubgroups * i + index];
       uint excl = subgroupExclusiveAdd(value);
       scanIntermediate[gl_NumSubgroups * i + index] = excl;

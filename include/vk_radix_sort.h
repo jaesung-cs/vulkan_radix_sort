@@ -18,6 +18,12 @@ VK_DEFINE_HANDLE(VrdxSorterLayout)
  */
 VK_DEFINE_HANDLE(VrdxSorter)
 
+typedef enum VrdxSortMethod {
+  VRDX_SORT_METHOD_AUTO = 0,
+  VRDX_SORT_METHOD_ONESWEEP = 1,
+  VRDX_SORT_METHOD_REDUCE_THEN_SCAN = 2,
+} VrdxSortMethod;
+
 struct VrdxSorterLayoutCreateInfo {
   VkPhysicalDevice physicalDevice;
   VkDevice device;
@@ -41,8 +47,10 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
 void vrdxDestroySorter(VrdxSorter sorter);
 
 /**
- * if queryPool is not VK_NULL_HANDLE, it writes timestamps to 8 entries
- * [query..query+7].
+ * if queryPool is not VK_NULL_HANDLE, it writes timestamps to N entries
+ * [query..query+N-1].
+ *
+ * Onesweep: N=8
  * query + 0: start timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
  * query + 1: histogram end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
  * query + 2: scan end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
@@ -51,16 +59,31 @@ void vrdxDestroySorter(VrdxSorter sorter);
  * query + 5: binning2 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
  * query + 6: binning3 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
  * query + 7: sort end timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+ *
+ * Reduce-then-scan: N=15
+ * query + 0: start timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+ * query + 1: transfer timestamp (VK_PIPELINE_STAGE_2_TRANSFER_BIT)
+ * query + 2 + (3 * i) + 0: upsweep (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+ * query + 2 + (3 * i) + 1: spine (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+ * query + 2 + (3 * i) + 2: downsweep (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+ * query + 14: sort end timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
  */
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                 uint32_t elementCount, VkBuffer buffer, VkDeviceSize offset,
-                 VkQueryPool queryPool, uint32_t query);
+                 VrdxSortMethod sortMethod, uint32_t elementCount,
+                 VkBuffer buffer, VkDeviceSize offset, VkQueryPool queryPool,
+                 uint32_t query);
+
+void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
+                         VrdxSortMethod sortMethod, VkBuffer indirectBuffer,
+                         VkDeviceSize indirectOffset, VkBuffer buffer,
+                         VkDeviceSize offset, VkQueryPool queryPool,
+                         uint32_t query);
 
 void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                         uint32_t elementCount, VkBuffer buffer,
-                         VkDeviceSize offset, VkBuffer valueBuffer,
-                         VkDeviceSize valueOffset, VkQueryPool queryPool,
-                         uint32_t query);
+                         VrdxSortMethod sortMethod, uint32_t elementCount,
+                         VkBuffer buffer, VkDeviceSize offset,
+                         VkBuffer valueBuffer, VkDeviceSize valueOffset,
+                         VkQueryPool queryPool, uint32_t query);
 
 /**
  * indirectBuffer contains elementCount.
@@ -74,7 +97,8 @@ void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
  * indirectBuffer requires TRANSFER_SRC buffer usage flag.
  */
 void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
-                                 VrdxSorter sorter, VkBuffer indirectBuffer,
+                                 VrdxSorter sorter, VrdxSortMethod sortMethod,
+                                 VkBuffer indirectBuffer,
                                  VkDeviceSize indirectOffset, VkBuffer buffer,
                                  VkDeviceSize offset, VkBuffer valueBuffer,
                                  VkDeviceSize valueOffset,

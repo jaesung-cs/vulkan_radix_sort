@@ -171,7 +171,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   VkQueryPoolCreateInfo query_pool_info = {
       VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
   query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-  query_pool_info.queryCount = 8;
+  query_pool_info.queryCount = 15;
   vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
 
   // sorter
@@ -235,6 +235,10 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
     const std::vector<uint32_t>& keys) {
+  constexpr auto sort_method = VRDX_SORT_METHOD_REDUCE_THEN_SCAN;
+  const auto timestamp_count =
+      sort_method == VRDX_SORT_METHOD_ONESWEEP ? 8 : 15;
+
   auto element_count = keys.size();
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -244,7 +248,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, 8);
+  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
   // copy to keys buffer
   VkBufferCopy region = {};
@@ -268,8 +272,8 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-              query_pool_, 0);
+  vrdxCmdSort(command_buffer_, sorter_, sort_method, element_count,
+              keys_.buffer, 0, query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -302,7 +306,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::vector<uint64_t> timestamps(8);
+  std::vector<uint64_t> timestamps(timestamp_count);
   vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
@@ -311,19 +315,30 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   result.keys[3].resize(element_count);
   std::memcpy(result.keys[3].data(), staging_.map,
               element_count * sizeof(uint32_t));
-  result.total_time = timestamps[7] - timestamps[0];
-  result.histogram_time = timestamps[1] - timestamps[0];
-  result.scan_time = timestamps[2] - timestamps[1];
+  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
   result.binning_times.resize(4);
-  result.binning_times[0] = timestamps[3] - timestamps[2];
-  result.binning_times[1] = timestamps[4] - timestamps[3];
-  result.binning_times[2] = timestamps[5] - timestamps[4];
-  result.binning_times[3] = timestamps[6] - timestamps[5];
+  if (sort_method == VRDX_SORT_METHOD_ONESWEEP) {
+    result.histogram_time = timestamps[1] - timestamps[0];
+    result.scan_time = timestamps[2] - timestamps[1];
+    result.binning_times[0] = timestamps[3] - timestamps[2];
+    result.binning_times[1] = timestamps[4] - timestamps[3];
+    result.binning_times[2] = timestamps[5] - timestamps[4];
+    result.binning_times[3] = timestamps[6] - timestamps[5];
+  } else if (sort_method == VRDX_SORT_METHOD_REDUCE_THEN_SCAN) {
+    result.reduce_then_scan_times.resize(14);
+    for (int i = 0; i < 14; ++i) {
+      result.reduce_then_scan_times[i] = timestamps[i + 1] - timestamps[i];
+    }
+  }
   return result;
 }
 
 VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
+  constexpr auto sort_method = VRDX_SORT_METHOD_REDUCE_THEN_SCAN;
+  const auto timestamp_count =
+      sort_method == VRDX_SORT_METHOD_ONESWEEP ? 8 : 15;
+
   auto element_count = keys.size();
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -337,7 +352,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, 8);
+  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
   // copy to keys buffer
   VkBufferCopy region = {};
@@ -361,10 +376,10 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
 
-  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, keys_.buffer,
-                              2 * element_count * sizeof(uint32_t),
-                              keys_.buffer, 0, keys_.buffer,
-                              element_count * sizeof(uint32_t), query_pool_, 0);
+  vrdxCmdSortKeyValueIndirect(
+      command_buffer_, sorter_, sort_method, keys_.buffer,
+      2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
+      element_count * sizeof(uint32_t), query_pool_, 0);
 
   // copy back
   buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -397,7 +412,7 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::vector<uint64_t> timestamps(8);
+  std::vector<uint64_t> timestamps(timestamp_count);
   vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
@@ -410,13 +425,20 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   std::memcpy(result.values.data(),
               staging_.map + element_count * sizeof(uint32_t),
               element_count * sizeof(uint32_t));
-  result.total_time = timestamps[7] - timestamps[0];
-  result.histogram_time = timestamps[1] - timestamps[0];
-  result.scan_time = timestamps[2] - timestamps[1];
+  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
   result.binning_times.resize(4);
-  result.binning_times[0] = timestamps[3] - timestamps[2];
-  result.binning_times[1] = timestamps[4] - timestamps[3];
-  result.binning_times[2] = timestamps[5] - timestamps[4];
-  result.binning_times[3] = timestamps[6] - timestamps[5];
+  if (sort_method == VRDX_SORT_METHOD_ONESWEEP) {
+    result.histogram_time = timestamps[1] - timestamps[0];
+    result.scan_time = timestamps[2] - timestamps[1];
+    result.binning_times[0] = timestamps[3] - timestamps[2];
+    result.binning_times[1] = timestamps[4] - timestamps[3];
+    result.binning_times[2] = timestamps[5] - timestamps[4];
+    result.binning_times[3] = timestamps[6] - timestamps[5];
+  } else if (sort_method == VRDX_SORT_METHOD_REDUCE_THEN_SCAN) {
+    result.reduce_then_scan_times.resize(14);
+    for (int i = 0; i < 14; ++i) {
+      result.reduce_then_scan_times[i] = timestamps[i + 1] - timestamps[i];
+    }
+  }
   return result;
 }

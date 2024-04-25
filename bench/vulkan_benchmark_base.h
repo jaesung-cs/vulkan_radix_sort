@@ -20,6 +20,7 @@ class VulkanBenchmarkBase {
     uint64_t histogram_time = 0;
     uint64_t scan_time = 0;
     std::vector<uint64_t> binning_times;
+    std::vector<uint64_t> reduce_then_scan_times;
   };
 
  public:
