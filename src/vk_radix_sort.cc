@@ -519,7 +519,8 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
 
   // descriptor pool
   std::vector<VkDescriptorPoolSize> poolSizes = {
-      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * frameCount},
+      // 3 for storage, 4 for inout, 4 for outin
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * frameCount},
   };
 
   VkDescriptorPool descriptorPool;
