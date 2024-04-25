@@ -59,22 +59,22 @@ void vrdxDestroySorter(VrdxSorter sorter);
  * [query..query+N-1].
  *
  * Onesweep: N=8
- * query + 0: start timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
- * query + 1: histogram end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 2: scan end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 3: binning0 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 4: binning1 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 5: binning2 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 6: binning3 end timestamp (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 7: sort end timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+ * query + 0: start timestamp (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+ * query + 1: histogram end timestamp (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 2: scan end timestamp (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 3: binning0 end timestamp (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 4: binning1 end timestamp (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 5: binning2 end timestamp (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 6: binning3 end timestamp (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 7: sort end timestamp (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
  *
  * Reduce-then-scan: N=15
- * query + 0: start timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
- * query + 1: transfer timestamp (VK_PIPELINE_STAGE_2_TRANSFER_BIT)
- * query + 2 + (3 * i) + 0: upsweep (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 2 + (3 * i) + 1: spine (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 2 + (3 * i) + 2: downsweep (VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
- * query + 14: sort end timestamp (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+ * query + 0: start timestamp (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+ * query + 1: transfer timestamp (VK_PIPELINE_STAGE_TRANSFER_BIT)
+ * query + 2 + (3 * i) + 0: upsweep (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 2 + (3 * i) + 1: spine (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 2 + (3 * i) + 2: downsweep (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ * query + 14: sort end timestamp (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
  */
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                  VrdxSortMethod sortMethod, uint32_t elementCount,

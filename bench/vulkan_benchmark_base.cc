@@ -50,7 +50,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
   application_info.pEngineName = "vk_radix_sort";
   application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
-  application_info.apiVersion = VK_API_VERSION_1_3;
+  application_info.apiVersion = VK_API_VERSION_1_2;
 
   VkDebugUtilsMessengerCreateInfoEXT messenger_info = {
       VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -104,16 +104,8 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   }
 
   // features
-  VkPhysicalDeviceMaintenance4Features maintenance_4_features = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES};
-
-  VkPhysicalDeviceSynchronization2Features synchronization_2_features = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
-  synchronization_2_features.pNext = &maintenance_4_features;
-
   VkPhysicalDeviceFeatures2 features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-  features.pNext = &synchronization_2_features;
   vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
   // queues
@@ -126,9 +118,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   queue_infos[0].queueCount = queue_priorities.size();
   queue_infos[0].pQueuePriorities = queue_priorities.data();
 
-  std::vector<const char*> device_extensions = {
-      VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
-  };
+  std::vector<const char*> device_extensions = {};
 
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.pNext = &features;
@@ -145,7 +135,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   allocator_info.physicalDevice = physical_device_;
   allocator_info.device = device_;
   allocator_info.instance = instance_;
-  allocator_info.vulkanApiVersion = VK_API_VERSION_1_3;
+  allocator_info.vulkanApiVersion = application_info.apiVersion;
   vmaCreateAllocator(&allocator_info, &allocator_);
 
   // commands
@@ -258,36 +248,30 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   // sort
-  VkBufferMemoryBarrier2 buffer_barrier = {
-      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-  buffer_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  VkBufferMemoryBarrier buffer_barrier = {
+      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
   buffer_barrier.buffer = keys_.buffer;
   buffer_barrier.offset = 0;
   buffer_barrier.size = element_count * sizeof(uint32_t);
-  VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dependency_info.bufferMemoryBarrierCount = 1;
-  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
-  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+  vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 1,
+                       &buffer_barrier, 0, NULL);
 
   vrdxCmdSort(command_buffer_, sorter_, sort_method, element_count,
               keys_.buffer, 0, query_pool_, 0);
 
   // copy back
-  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-  buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
   buffer_barrier.buffer = keys_.buffer;
   buffer_barrier.offset = 0;
   buffer_barrier.size = element_count * sizeof(uint32_t);
-  dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dependency_info.bufferMemoryBarrierCount = 1;
-  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
-  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+  vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1,
+                       &buffer_barrier, 0, NULL);
 
   region.srcOffset = 0;
   region.dstOffset = 0;
@@ -296,13 +280,10 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
 
   vkEndCommandBuffer(command_buffer_);
 
-  VkCommandBufferSubmitInfo command_buffer_submit_info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-  command_buffer_submit_info.commandBuffer = command_buffer_;
-  VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-  submit.commandBufferInfoCount = 1;
-  submit.pCommandBufferInfos = &command_buffer_submit_info;
-  vkQueueSubmit2(queue_, 1, &submit, fence_);
+  VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  submit.commandBufferCount = 1;
+  submit.pCommandBuffers = &command_buffer_;
+  vkQueueSubmit(queue_, 1, &submit, fence_);
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
@@ -362,19 +343,16 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   // sort
-  VkBufferMemoryBarrier2 buffer_barrier = {
-      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-  buffer_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  VkBufferMemoryBarrier buffer_barrier = {
+      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
   buffer_barrier.buffer = keys_.buffer;
   buffer_barrier.offset = 0;
   buffer_barrier.size = (2 * element_count + 1) * sizeof(uint32_t);
-  VkDependencyInfo dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dependency_info.bufferMemoryBarrierCount = 1;
-  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
-  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+  vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 1,
+                       &buffer_barrier, 0, NULL);
 
   vrdxCmdSortKeyValueIndirect(
       command_buffer_, sorter_, sort_method, keys_.buffer,
@@ -382,18 +360,15 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
       element_count * sizeof(uint32_t), query_pool_, 0);
 
   // copy back
-  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-  buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-  buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-  buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  buffer_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
   buffer_barrier.buffer = keys_.buffer;
   buffer_barrier.offset = 0;
   buffer_barrier.size = 2 * element_count * sizeof(uint32_t);
-  dependency_info = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dependency_info.bufferMemoryBarrierCount = 1;
-  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
-  vkCmdPipelineBarrier2(command_buffer_, &dependency_info);
+  vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1,
+                       &buffer_barrier, 0, NULL);
 
   region.srcOffset = 0;
   region.dstOffset = 0;
@@ -402,13 +377,10 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
 
   vkEndCommandBuffer(command_buffer_);
 
-  VkCommandBufferSubmitInfo command_buffer_submit_info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-  command_buffer_submit_info.commandBuffer = command_buffer_;
-  VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-  submit.commandBufferInfoCount = 1;
-  submit.pCommandBufferInfos = &command_buffer_submit_info;
-  vkQueueSubmit2(queue_, 1, &submit, fence_);
+  VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  submit.commandBufferCount = 1;
+  submit.pCommandBuffers = &command_buffer_;
+  vkQueueSubmit(queue_, 1, &submit, fence_);
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
