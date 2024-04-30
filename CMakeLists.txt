@@ -12,6 +12,9 @@ if (NOT TARGET VulkanMemoryAllocator)
   add_subdirectory(third_party/VulkanMemoryAllocator EXCLUDE_FROM_ALL)
 endif()
 
+# adds -fPIC, works for linux, when building shared library
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 add_library(vk_radix_sort STATIC
   src/vk_radix_sort.cc
 )
