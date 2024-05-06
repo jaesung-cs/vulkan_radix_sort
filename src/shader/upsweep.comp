@@ -1,14 +1,10 @@
-#ifndef VK_RADIX_SORT_SHADER_UPSWEEP_H
-#define VK_RADIX_SORT_SHADER_UPSWEEP_H
-
-const char* upsweep_comp = R"shader(
 #version 460 core
 
 #extension GL_KHR_shader_subgroup_basic: enable
 
 const int RADIX = 256;
-// #define WORKGROUP_SIZE 512
-// #define PARTITION_DIVISION 8
+#define WORKGROUP_SIZE 512
+#define PARTITION_DIVISION 8
 const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 layout (local_size_x = WORKGROUP_SIZE) in;
@@ -67,7 +63,3 @@ void main() {
     atomicAdd(globalHistogram[RADIX * pass + index], localHistogram[index]);
   }
 }
-
-)shader";
-
-#endif  // VK_RADIX_SORT_SHADER_UPSWEEP_H
