@@ -135,6 +135,7 @@ struct PushConstants {
 void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
                             VrdxSorterLayout* pSorterLayout) {
   VkDevice device = pCreateInfo->device;
+  VkPipelineCache pipelineCache = pCreateInfo->pipelineCache;
 
   // shader specialization constants and defaults
   VkPhysicalDeviceVulkan11Properties physicalDeviceVulkan11Properties = {
@@ -272,7 +273,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfo.stage.pSpecializationInfo = &specializationInfo;
     pipelineInfo.layout = pipelineLayout;
 
-    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL,
                              &histogramPipeline);
 
     vkDestroyShaderModule(device, shaderModule, NULL);
@@ -296,7 +297,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
-    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL,
                              &scanPipeline);
 
     vkDestroyShaderModule(device, shaderModule, NULL);
@@ -334,7 +335,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfos[1].layout = pipelineLayout;
 
     std::vector<VkPipeline> pipelines(pipelineInfos.size());
-    vkCreateComputePipelines(device, NULL, pipelineInfos.size(),
+    vkCreateComputePipelines(device, pipelineCache, pipelineInfos.size(),
                              pipelineInfos.data(), NULL, pipelines.data());
     binningPipeline = pipelines[0];
     binningKeyValuePipeline = pipelines[1];
@@ -361,7 +362,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
-    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL,
                              &upsweepPipeline);
 
     vkDestroyShaderModule(device, shaderModule, NULL);
@@ -385,7 +386,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
-    vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
+    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL,
                              &spinePipeline);
 
     vkDestroyShaderModule(device, shaderModule, NULL);
@@ -423,7 +424,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfos[1].layout = pipelineLayout;
 
     std::vector<VkPipeline> pipelines(pipelineInfos.size());
-    vkCreateComputePipelines(device, NULL, pipelineInfos.size(),
+    vkCreateComputePipelines(device, pipelineCache, pipelineInfos.size(),
                              pipelineInfos.data(), NULL, pipelines.data());
     downsweepPipeline = pipelines[0];
     downsweepKeyValuePipeline = pipelines[1];

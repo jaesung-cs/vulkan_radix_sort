@@ -35,6 +35,7 @@ typedef enum VrdxSortMethod {
 struct VrdxSorterLayoutCreateInfo {
   VkPhysicalDevice physicalDevice;
   VkDevice device;
+  VkPipelineCache pipelineCache;
 };
 
 struct VrdxSorterCreateInfo {
