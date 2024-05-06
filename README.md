@@ -5,11 +5,10 @@ State-of-the-art GPU radix sort algorithm, [Onesweep (Link to NVidia Research)](
 
 
 ## Requirements
-- `VulkanSDK>=1.3`
+- `VulkanSDK>=1.2`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
-  - Requires several features available in `1.3`.
-- `cmake>=3.24`
-  - `Vulkan::shaderc_combined` new in version `3.24`.
+  - Requires several features available in `1.2`.
+- `cmake>=3.15`
 
 
 ## Dependencies

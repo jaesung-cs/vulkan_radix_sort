@@ -1,20 +1,13 @@
-#ifndef VK_RADIX_SORT_SHADER_BINNING_H
-#define VK_RADIX_SORT_SHADER_BINNING_H
-
-const char* binning_comp = R"shader(
 #version 460 core
 
 #extension GL_KHR_shader_subgroup_basic: enable
-#extension GL_KHR_shader_subgroup_ballot: enable
-#extension GL_KHR_shader_subgroup_shuffle: enable
 #extension GL_KHR_shader_subgroup_arithmetic: enable
+#extension GL_KHR_shader_subgroup_ballot: enable
 
-const uint RADIX = 256;
-const uint WORKGROUP_SIZE = 512;
-// subgroup size is 32, 64, or 128.
-const uint MAX_SUBGROUP_COUNT = WORKGROUP_SIZE / 32;
-const uint WORKGROUP_COUNT = 8;
-const uint PARTITION_SIZE = WORKGROUP_SIZE * WORKGROUP_COUNT;
+const int RADIX = 256;
+#define WORKGROUP_SIZE 512
+#define PARTITION_DIVISION 8
+const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 layout (local_size_x = WORKGROUP_SIZE) in;
 
@@ -22,15 +15,9 @@ layout (push_constant) uniform PushConstant {
   int pass;
 };
 
-layout (set = 0, binding = 0) readonly buffer Histogram {
-  uint histogram[];  // (4, R)
-};
-
-layout (set = 0, binding = 1, std430) buffer Lookback {
-  uint partitionCounter;  // starting from 0
-
-  // Volatile memory enables lookback!
-  volatile uint lookback[];  // (ceil(N/P), R)
+layout (set = 0, binding = 1, std430) readonly buffer Histogram {
+  uint globalHistogram[4 * RADIX];  // (4, R)
+  uint partitionHistogram[];  // (P, R)
 };
 
 layout (set = 0, binding = 2) readonly buffer ElementCount {
@@ -57,13 +44,7 @@ layout (set = 1, binding = 3) writeonly buffer OutValues {
 
 const uint SHMEM_SIZE = PARTITION_SIZE;
 
-// Onesweep lookback status. 0xc = 0b1100 for GLOBAL_SUM, for |(or) operator.
-#define LOCAL_COUNT 0x40000000u
-#define GLOBAL_SUM 0xc0000000u
-
-shared uint partitionIndex;
-
-shared uint localHistogram[SHMEM_SIZE];  // (R, S=16)=4096, (P), or (2P) for alias. take maximum.
+shared uint localHistogram[SHMEM_SIZE];  // (R, S=16)=4096, (P) for alias. take maximum.
 shared uint localHistogramSum[RADIX];
 
 // returns 0b00000....11111, where msb is id-1.
@@ -83,18 +64,14 @@ uint GetBitCount(uvec4 value) {
 
 void main() {
   uint threadIndex = gl_SubgroupInvocationID;  // 0..31
-  uvec4 subgroupMask = GetExclusiveSubgroupMask(threadIndex);
   uint subgroupIndex = gl_SubgroupID;  // 0..15
   uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
+  uvec4 subgroupMask = GetExclusiveSubgroupMask(threadIndex);
 
-  // initialize shared variables
-  // the workgroup is responsible for partitionIndex
-  if (index == 0) {
-    partitionIndex = atomicAdd(partitionCounter, 1);
-  }
-  barrier();
+  uint partitionIndex = gl_WorkGroupID.x;
+  uint partitionStart = partitionIndex * PARTITION_SIZE;
 
-  if (PARTITION_SIZE * partitionIndex >= elementCount) return;
+  if (partitionStart >= elementCount) return;
 
   if (index < RADIX) {
     for (int i = 0; i < gl_NumSubgroups; ++i) {
@@ -104,19 +81,19 @@ void main() {
   barrier();
 
   // load from global memory, local histogram and offset
-  uint localKeys[WORKGROUP_COUNT];
-  uint localRadix[WORKGROUP_COUNT];
-  uint localOffsets[WORKGROUP_COUNT];
-  uint subgroupHistogram[WORKGROUP_COUNT];
+  uint localKeys[PARTITION_DIVISION];
+  uint localRadix[PARTITION_DIVISION];
+  uint localOffsets[PARTITION_DIVISION];
+  uint subgroupHistogram[PARTITION_DIVISION];
 
 #ifdef KEY_VALUE
-  uint localValues[WORKGROUP_COUNT];
+  uint localValues[PARTITION_DIVISION];
 #endif
-  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
-    uint keyIndex = PARTITION_SIZE * partitionIndex + (WORKGROUP_COUNT * gl_SubgroupSize) * subgroupIndex + i * gl_SubgroupSize + threadIndex;
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
+    uint keyIndex = partitionStart + (PARTITION_DIVISION * gl_SubgroupSize) * subgroupIndex + i * gl_SubgroupSize + threadIndex;
     uint key = keyIndex < elementCount ? keys[keyIndex] : 0xffffffff;
     localKeys[i] = key;
-
+    
 #ifdef KEY_VALUE
     localValues[i] = keyIndex < elementCount ? values[keyIndex] : 0;
 #endif
@@ -138,7 +115,7 @@ void main() {
     uint subgroupOffset = GetBitCount(subgroupMask & mask);
     uint radixCount = GetBitCount(mask);
 
-    // elect a representative per radix, adds to histogram
+    // elect a representative per radix, add to histogram
     if (subgroupOffset == 0) {
       // accumulate to local histogram
       atomicAdd(localHistogram[gl_NumSubgroups * radix + subgroupIndex], radixCount);
@@ -150,7 +127,7 @@ void main() {
     localOffsets[i] = subgroupOffset;
   }
   barrier();
-
+  
   // local histogram reduce 4096
   for (uint i = index; i < RADIX * gl_NumSubgroups; i += WORKGROUP_SIZE) {
     uint v = localHistogram[i];
@@ -198,7 +175,7 @@ void main() {
   barrier();
 
   // post-scan stage
-  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint radix = localRadix[i];
     localOffsets[i] += localHistogram[gl_NumSubgroups * radix + subgroupIndex];
 
@@ -210,60 +187,16 @@ void main() {
   }
 
   // after atomicAdd, localHistogram contains inclusive sum
-  // update lookback
-  uint localCount = 0;
   if (index < RADIX) {
-    uint v = localHistogram[gl_NumSubgroups * (index + 1) - 1];
-    localCount = v;
-    if (index > 0) {
-      localCount -= localHistogram[gl_NumSubgroups * index - 1];
-    }
-
-    // inclusive sum with lookback
-    uint globalHistogram = histogram[RADIX * pass + index];
-    if (partitionIndex == 0) {
-      lookback[RADIX * partitionIndex + index] = GLOBAL_SUM | localCount;
-      localHistogramSum[index] = int(globalHistogram) + int(localCount) - int(v);
-    } else {
-      lookback[RADIX * partitionIndex + index] = LOCAL_COUNT | localCount;
-
-      // lookback
-      uint globalSum = localCount;
-      int lookbackIndex = int(partitionIndex) - 1;
-      while (lookbackIndex >= 0) {
-        uint lookbackValue = lookback[RADIX * lookbackIndex + index];
-
-        if ((lookbackValue & GLOBAL_SUM) == GLOBAL_SUM) {
-          // allow overflow in status positions. will be stored with OR operator, and removed to get value
-          globalSum += lookbackValue;
-          break;
-        }
-
-        else if ((lookbackValue & GLOBAL_SUM) == LOCAL_COUNT) {
-          globalSum += lookbackValue;
-          lookbackIndex--;
-        }
-
-        // if not ready, lookback again
-      }
-
-      // update global sum
-      lookback[RADIX * partitionIndex + index] = GLOBAL_SUM | globalSum;
-
-      // store exclusive sum
-      localHistogramSum[index] = int(globalHistogram) + int(globalSum & ~GLOBAL_SUM) - int(v);
-    }
+    uint v = index == 0 ? 0 : localHistogram[gl_NumSubgroups * index - 1];
+    localHistogramSum[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   barrier();
 
   // rearrange keys. grouping keys together makes dstOffset to be almost sequential, grants huge speed boost.
   // now localHistogram is unused, so alias memory.
-  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
     localHistogram[localOffsets[i]] = localKeys[i];
-
-#ifdef KEY_VALUE
-    localHistogram[PARTITION_SIZE + localOffsets[i]] = localValues[i];
-#endif
   }
   barrier();
 
@@ -284,7 +217,7 @@ void main() {
 #ifdef KEY_VALUE
   barrier();
 
-  for (int i = 0; i < WORKGROUP_COUNT; ++i) {
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
     localHistogram[localOffsets[i]] = localValues[i];
   }
   barrier();
@@ -295,7 +228,3 @@ void main() {
   }
 #endif
 }
-
-)shader";
-
-#endif  // VK_RADIX_SORT_SHADER_BINNING_H

@@ -1,7 +1,3 @@
-#ifndef VK_RADIX_SORT_SHADER_SPINE_H
-#define VK_RADIX_SORT_SHADER_SPINE_H
-
-const char* spine_comp = R"shader(
 #version 460 core
 
 #extension GL_KHR_shader_subgroup_basic: enable
@@ -9,9 +5,9 @@ const char* spine_comp = R"shader(
 #extension GL_KHR_shader_subgroup_ballot: enable
 
 const int RADIX = 256;
-// #define SUBGROUP_SIZE 32
-// #define WORKGROUP_SIZE 512
-// #define PARTITION_DIVISION 8
+#define SUBGROUP_SIZE 32
+#define WORKGROUP_SIZE 512
+#define PARTITION_DIVISION 8
 const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 // dispatch this shader (RADIX, 1, 1), so that gl_WorkGroupID.x is radix
@@ -98,7 +94,3 @@ void main() {
     }
   }
 }
-
-)shader";
-
-#endif  // VK_RADIX_SORT_SHADER_SPINE_H

@@ -7,12 +7,14 @@
 
 #include <shaderc/shaderc.hpp>
 
-#include "shader/histogram.h"
-#include "shader/scan.h"
-#include "shader/binning.h"
-#include "shader/upsweep.h"
-#include "shader/spine.h"
-#include "shader/downsweep.h"
+#include "generated/histogram_comp.h"
+#include "generated/scan_comp.h"
+#include "generated/binning_comp.h"
+#include "generated/binning_key_value_comp.h"
+#include "generated/upsweep_comp.h"
+#include "generated/spine_comp.h"
+#include "generated/downsweep_comp.h"
+#include "generated/downsweep_key_value_comp.h"
 
 // Twosweep = Reduce-then-scan
 
@@ -58,57 +60,6 @@ struct TwosweepStorageOffsets {
   VkDeviceSize elementCountOffset = 0;
   VkDeviceSize outOffset = 0;
 };
-
-// Compiles a shader to a SPIR-V binary, and create a VkShaderModule.
-VkShaderModule CreateShaderModule(
-    VkDevice device, VkShaderStageFlagBits stage, const std::string& source,
-    const std::vector<std::string>& defines = {},
-    const std::unordered_map<std::string, std::string>& defineValues = {}) {
-  shaderc_shader_kind kind;
-  switch (stage) {
-    case VK_SHADER_STAGE_VERTEX_BIT:
-      kind = shaderc_glsl_vertex_shader;
-      break;
-
-    case VK_SHADER_STAGE_FRAGMENT_BIT:
-      kind = shaderc_glsl_fragment_shader;
-      break;
-
-    case VK_SHADER_STAGE_COMPUTE_BIT:
-      kind = shaderc_glsl_compute_shader;
-      break;
-  }
-
-  shaderc::Compiler compiler;
-  shaderc::CompileOptions options;
-
-  for (const auto& define : defines) options.AddMacroDefinition(define);
-  for (const auto& [key, value] : defineValues)
-    options.AddMacroDefinition(key, value);
-
-  options.SetOptimizationLevel(shaderc_optimization_level_performance);
-  options.SetTargetSpirv(shaderc_spirv_version_1_5);
-  options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                               shaderc_env_version_vulkan_1_2);
-
-  shaderc::SpvCompilationResult module =
-      compiler.CompileGlslToSpv(source, kind, "shader_src", options);
-
-  if (module.GetCompilationStatus() != shaderc_compilation_status_success) {
-    std::cerr << module.GetErrorMessage() << std::endl;
-    return VK_NULL_HANDLE;
-  }
-
-  std::vector<uint32_t> code{module.cbegin(), module.cend()};
-
-  VkShaderModuleCreateInfo shaderInfo = {
-      VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-  shaderInfo.codeSize = code.size() * sizeof(code[0]);
-  shaderInfo.pCode = code.data();
-  VkShaderModule shader;
-  vkCreateShaderModule(device, &shaderInfo, NULL, &shader);
-  return shader;
-}
 
 void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
              VrdxSortMethod sortMethod, uint32_t elementCount,
@@ -293,8 +244,12 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
   // pipelines
   VkPipeline histogramPipeline;
   {
-    VkShaderModule pipelineModule =
-        CreateShaderModule(device, VK_SHADER_STAGE_COMPUTE_BIT, histogram_comp);
+    VkShaderModule shaderModule;
+    VkShaderModuleCreateInfo shaderModuleInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shaderModuleInfo.codeSize = sizeof(histogram_comp);
+    shaderModuleInfo.pCode = histogram_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkSpecializationMapEntry mapEntry = {};
     mapEntry.constantID = 0;
@@ -312,7 +267,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfo.stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.module = shaderModule;
     pipelineInfo.stage.pName = "main";
     pipelineInfo.stage.pSpecializationInfo = &specializationInfo;
     pipelineInfo.layout = pipelineLayout;
@@ -320,44 +275,53 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
                              &histogramPipeline);
 
-    vkDestroyShaderModule(device, pipelineModule, NULL);
+    vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline scanPipeline;
   {
-    VkShaderModule pipelineModule =
-        CreateShaderModule(device, VK_SHADER_STAGE_COMPUTE_BIT, scan_comp);
+    VkShaderModule shaderModule;
+    VkShaderModuleCreateInfo shaderModuleInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shaderModuleInfo.codeSize = sizeof(scan_comp);
+    shaderModuleInfo.pCode = scan_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkComputePipelineCreateInfo pipelineInfo = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfo.stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.module = shaderModule;
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
     vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
                              &scanPipeline);
 
-    vkDestroyShaderModule(device, pipelineModule, NULL);
+    vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline binningPipeline;
   VkPipeline binningKeyValuePipeline;
   {
-    std::vector<VkShaderModule> pipelineModules(2);
-    pipelineModules[0] =
-        CreateShaderModule(device, VK_SHADER_STAGE_COMPUTE_BIT, binning_comp);
-    pipelineModules[1] = CreateShaderModule(device, VK_SHADER_STAGE_COMPUTE_BIT,
-                                            binning_comp, {"KEY_VALUE"});
+    std::vector<VkShaderModule> shaderModules(2);
+    VkShaderModuleCreateInfo shaderModuleInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shaderModuleInfo.codeSize = sizeof(binning_comp);
+    shaderModuleInfo.pCode = binning_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[0]);
+
+    shaderModuleInfo.codeSize = sizeof(binning_key_value_comp);
+    shaderModuleInfo.pCode = binning_key_value_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[1]);
 
     std::vector<VkComputePipelineCreateInfo> pipelineInfos(2);
     pipelineInfos[0] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfos[0].stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfos[0].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfos[0].stage.module = pipelineModules[0];
+    pipelineInfos[0].stage.module = shaderModules[0];
     pipelineInfos[0].stage.pName = "main";
     pipelineInfos[0].layout = pipelineLayout;
 
@@ -365,7 +329,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfos[1].stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfos[1].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfos[1].stage.module = pipelineModules[1];
+    pipelineInfos[1].stage.module = shaderModules[1];
     pipelineInfos[1].stage.pName = "main";
     pipelineInfos[1].layout = pipelineLayout;
 
@@ -375,74 +339,78 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     binningPipeline = pipelines[0];
     binningKeyValuePipeline = pipelines[1];
 
-    for (auto pipelineModule : pipelineModules)
-      vkDestroyShaderModule(device, pipelineModule, NULL);
+    for (auto shaderModule : shaderModules)
+      vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline upsweepPipeline;
   {
-    VkShaderModule pipelineModule = CreateShaderModule(
-        device, VK_SHADER_STAGE_COMPUTE_BIT, upsweep_comp, {},
-        {{"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
-         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+    VkShaderModule shaderModule;
+    VkShaderModuleCreateInfo shaderModuleInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shaderModuleInfo.codeSize = sizeof(upsweep_comp);
+    shaderModuleInfo.pCode = upsweep_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkComputePipelineCreateInfo pipelineInfo = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfo.stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.module = shaderModule;
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
     vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
                              &upsweepPipeline);
 
-    vkDestroyShaderModule(device, pipelineModule, NULL);
+    vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline spinePipeline;
   {
-    VkShaderModule pipelineModule = CreateShaderModule(
-        device, VK_SHADER_STAGE_COMPUTE_BIT, spine_comp, {},
-        {{"SUBGROUP_SIZE", std::to_string(subgroupSize)},
-         {"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
-         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+    VkShaderModule shaderModule;
+    VkShaderModuleCreateInfo shaderModuleInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shaderModuleInfo.codeSize = sizeof(spine_comp);
+    shaderModuleInfo.pCode = spine_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkComputePipelineCreateInfo pipelineInfo = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfo.stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfo.stage.module = pipelineModule;
+    pipelineInfo.stage.module = shaderModule;
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
     vkCreateComputePipelines(device, NULL, 1, &pipelineInfo, NULL,
                              &spinePipeline);
 
-    vkDestroyShaderModule(device, pipelineModule, NULL);
+    vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline downsweepPipeline;
   VkPipeline downsweepKeyValuePipeline;
   {
-    std::vector<VkShaderModule> pipelineModules(2);
-    pipelineModules[0] = CreateShaderModule(
-        device, VK_SHADER_STAGE_COMPUTE_BIT, downsweep_comp, {},
-        {{"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
-         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
-    pipelineModules[1] = CreateShaderModule(
-        device, VK_SHADER_STAGE_COMPUTE_BIT, downsweep_comp, {"KEY_VALUE"},
-        {{"WORKGROUP_SIZE", std::to_string(WORKGROUP_SIZE)},
-         {"PARTITION_DIVISION", std::to_string(PARTITION_DIVISION)}});
+    std::vector<VkShaderModule> shaderModules(2);
+    VkShaderModuleCreateInfo shaderModuleInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shaderModuleInfo.codeSize = sizeof(downsweep_comp);
+    shaderModuleInfo.pCode = downsweep_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[0]);
+
+    shaderModuleInfo.codeSize = sizeof(downsweep_key_value_comp);
+    shaderModuleInfo.pCode = downsweep_key_value_comp;
+    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[1]);
 
     std::vector<VkComputePipelineCreateInfo> pipelineInfos(2);
     pipelineInfos[0] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfos[0].stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfos[0].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfos[0].stage.module = pipelineModules[0];
+    pipelineInfos[0].stage.module = shaderModules[0];
     pipelineInfos[0].stage.pName = "main";
     pipelineInfos[0].layout = pipelineLayout;
 
@@ -450,7 +418,7 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     pipelineInfos[1].stage.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipelineInfos[1].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfos[1].stage.module = pipelineModules[1];
+    pipelineInfos[1].stage.module = shaderModules[1];
     pipelineInfos[1].stage.pName = "main";
     pipelineInfos[1].layout = pipelineLayout;
 
@@ -460,8 +428,8 @@ void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
     downsweepPipeline = pipelines[0];
     downsweepKeyValuePipeline = pipelines[1];
 
-    for (auto pipelineModule : pipelineModules)
-      vkDestroyShaderModule(device, pipelineModule, NULL);
+    for (auto shaderModule : shaderModules)
+      vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   *pSorterLayout = new VrdxSorterLayout_T();
