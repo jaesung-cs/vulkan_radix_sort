@@ -1,5 +1,6 @@
 #version 460 core
 
+#extension GL_EXT_buffer_reference : require
 #extension GL_KHR_shader_subgroup_basic: enable
 #extension GL_KHR_shader_subgroup_arithmetic: enable
 #extension GL_KHR_shader_subgroup_ballot: enable
@@ -11,36 +12,36 @@ const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 layout (local_size_x = WORKGROUP_SIZE) in;
 
-layout (push_constant) uniform PushConstant {
-  int pass;
-};
-
-layout (set = 0, binding = 1, std430) readonly buffer Histogram {
+layout (buffer_reference, std430) readonly buffer Histogram {
   uint globalHistogram[4 * RADIX];  // (4, R)
   uint partitionHistogram[];  // (P, R)
 };
 
-layout (set = 0, binding = 2) readonly buffer ElementCount {
+layout (buffer_reference, std430) readonly buffer ElementCount {
   uint elementCount;
 };
 
-layout (set = 1, binding = 0) readonly buffer Keys {
+layout (buffer_reference, std430) buffer Keys {
   uint keys[];  // (N)
 };
 
-layout (set = 1, binding = 1) writeonly buffer OutKeys {
-  uint outKeys[];  // (N)
-};
-
 #ifdef KEY_VALUE
-layout (set = 1, binding = 2) readonly buffer Values {
+layout (buffer_reference, std430) buffer Values {
   uint values[];  // (N)
 };
-
-layout (set = 1, binding = 3) writeonly buffer OutValues {
-  uint outValues[];  // (N)
-};
 #endif
+
+layout (push_constant) uniform PushConstant {
+  int pass;
+  Histogram histogramReferences;
+  ElementCount elementCountReferences;
+  Keys keysInReferences;
+  Keys keysOutReferences;
+#ifdef KEY_VALUE
+  Values valuesInReferences;
+  Values valuesOutReferences;
+#endif
+};
 
 const uint SHMEM_SIZE = PARTITION_SIZE;
 
@@ -71,6 +72,8 @@ void main() {
   uint partitionIndex = gl_WorkGroupID.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
+  uint elementCount = elementCountReferences.elementCount;
+
   if (partitionStart >= elementCount) return;
 
   if (index < RADIX) {
@@ -91,11 +94,11 @@ void main() {
 #endif
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint keyIndex = partitionStart + (PARTITION_DIVISION * gl_SubgroupSize) * subgroupIndex + i * gl_SubgroupSize + threadIndex;
-    uint key = keyIndex < elementCount ? keys[keyIndex] : 0xffffffff;
+    uint key = keyIndex < elementCount ? keysInReferences.keys[keyIndex] : 0xffffffff;
     localKeys[i] = key;
     
 #ifdef KEY_VALUE
-    localValues[i] = keyIndex < elementCount ? values[keyIndex] : 0;
+    localValues[i] = keyIndex < elementCount ? valuesInReferences.values[keyIndex] : 0;
 #endif
 
     uint radix = bitfieldExtract(key, pass * 8, 8);
@@ -189,7 +192,7 @@ void main() {
   // after atomicAdd, localHistogram contains inclusive sum
   if (index < RADIX) {
     uint v = index == 0 ? 0 : localHistogram[gl_NumSubgroups * index - 1];
-    localHistogramSum[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - v;
+    localHistogramSum[index] = histogramReferences.globalHistogram[RADIX * pass + index] + histogramReferences.partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   barrier();
 
@@ -206,7 +209,7 @@ void main() {
     uint radix = bitfieldExtract(key, pass * 8, 8);
     uint dstOffset = localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {
-      outKeys[dstOffset] = key;
+      keysOutReferences.keys[dstOffset] = key;
     }
 
 #ifdef KEY_VALUE
@@ -224,7 +227,7 @@ void main() {
 
   for (uint i = index; i < PARTITION_SIZE; i += WORKGROUP_SIZE) {
     uint value = localHistogram[i];
-    outValues[localKeys[i / WORKGROUP_SIZE]] = value;
+    valuesOutReferences.values[localKeys[i / WORKGROUP_SIZE]] = value;
   }
 #endif
 }

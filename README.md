@@ -1,13 +1,16 @@
 # vulkan_radix_sort
+
 Vulkan implementation of radix sort.
 
-State-of-the-art GPU radix sort algorithm, [Onesweep (Link to NVidia Research)](https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus), is implemented.
+Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.)
 
 
 ## Requirements
 - `VulkanSDK>=1.2`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
   - Requires several features available in `1.2`.
+  - Must support `VK_KHR_buffer_device_address`:
+    - Run `vulkaninfo` and check if `VK_KHR_buffer_device_address` device extension is available.
 - `cmake>=3.15`
 
 
@@ -43,17 +46,21 @@ $ ./build/bench  # Linux
     ```
 
 ## Usage
-1. When creating `VkDevice`, enable `VK_KHR_maintenance4` and `VK_KHR_synchronization2` device features.
+1. When creating `VkDevice`, enable `VkPhysicalDeviceBufferAddressFeatures`.
+
+1. When creating `VmaAllocator`, enable `VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` flag.
+
+1. Create `VkBuffer` for keys and values, with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT` and `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`.
 
 1. Create `VrdxSorterLayout`
 
-    It creates shared resources: descriptor layouts, pipeline layouts, pipelines, etc.
+    It creates shared resources: pipeline layouts, pipelines, etc.
 
     ```c++
     VrdxSorterLayout sorterLayout = VK_NULL_HANDLE;
     VrdxSorterLayoutCreateInfo sorterLayoutInfo = {};
-    sorterLayoutInfo.device = device_;
-    sorterLayoutInfo.histogramWorkgroupSize = 1024;
+    sorterLayoutInfo.physicalDevice = physicalDevice;
+    sorterLayoutInfo.device = device;
     VrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
     ```
 
@@ -61,20 +68,17 @@ $ ./build/bench  # Linux
 
     `VrdxSorter` owns a temporary storage buffer. The size of temporary storage is `2N` for key/value output, plus histogram.
 
-    It also create its own descriptor pool and descriptor sets of size equal to `maxCommandsInFlight`.
-
     ```c++
     VrdxSorterCreateInfo sorterInfo = {};
     sorterInfo.allocator = allocator;  // VmaAllocator
     sorterInfo.sorterLayout = sorterLayout;
     sorterInfo.maxElementCount = 10000000;
-    sorterInfo.maxCommandsInFlight = 2;
     vrdxCreateSorter(&sorterInfo, &sorter);
     ```
 
 1. Record sort commands.
 
-    This command binds pipeline, pipeline layout, descriptors, and push constants internally.
+    This command binds pipeline, pipeline layout, and push constants internally.
 
     So, users must not expect previously bound targets retain after the sort command.
 

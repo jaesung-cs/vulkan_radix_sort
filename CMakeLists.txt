@@ -57,11 +57,6 @@ target_link_libraries(vk_radix_sort
   PUBLIC Vulkan::Vulkan VulkanMemoryAllocator
 )
 
-add_shader(vk_radix_sort src/shader/histogram.comp histogram_comp)
-add_shader(vk_radix_sort src/shader/scan.comp scan_comp)
-add_shader(vk_radix_sort src/shader/binning.comp binning_comp)
-add_shader(vk_radix_sort src/shader/binning.comp binning_key_value_comp KEY_VALUE)
-
 add_shader(vk_radix_sort src/shader/upsweep.comp upsweep_comp)
 add_shader(vk_radix_sort src/shader/spine.comp spine_comp)
 add_shader(vk_radix_sort src/shader/downsweep.comp downsweep_comp)
