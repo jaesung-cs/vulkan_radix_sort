@@ -104,8 +104,12 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   }
 
   // features
+  VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+
   VkPhysicalDeviceFeatures2 features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+  features.pNext = &buffer_device_address_features;
   vkGetPhysicalDeviceFeatures2(physical_device_, &features);
 
   // queues
@@ -132,6 +136,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
 
   // vma
   VmaAllocatorCreateInfo allocator_info = {};
+  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   allocator_info.physicalDevice = physical_device_;
   allocator_info.device = device_;
   allocator_info.instance = instance_;
@@ -182,7 +187,8 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
