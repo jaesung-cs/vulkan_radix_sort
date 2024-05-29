@@ -10,13 +10,10 @@ const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 layout (local_size_x = WORKGROUP_SIZE) in;
 
-layout (buffer_reference, std430) buffer Histogram {
+layout (buffer_reference, std430) readonly buffer Storage {
+  uint elementCount;
   uint globalHistogram[4 * RADIX];  // (4, R)
   uint partitionHistogram[];  // (P, R)
-};
-
-layout (buffer_reference, std430) readonly buffer ElementCount {
-  uint elementCount;
 };
 
 layout (buffer_reference, std430) readonly buffer Keys {
@@ -25,9 +22,8 @@ layout (buffer_reference, std430) readonly buffer Keys {
 
 layout (push_constant) uniform PushConstant {
   int pass;
-  Histogram histogramReferences;
-  ElementCount elementCountReferences;
-  Keys keysInReferences;
+  Storage storageReference;
+  Keys keysInReference;
 };
 
 shared uint localHistogram[RADIX];
@@ -37,7 +33,7 @@ void main() {
   uint subgroupIndex = gl_SubgroupID;  // 0..31
   uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
 
-  uint elementCount = elementCountReferences.elementCount;
+  uint elementCount = storageReference.elementCount;
 
   uint partitionIndex = gl_WorkGroupID.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
@@ -55,7 +51,7 @@ void main() {
   // local histogram
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint keyIndex = partitionStart + WORKGROUP_SIZE * i + index;
-    uint key = keyIndex < elementCount ? keysInReferences.keys[keyIndex] : 0xffffffff;
+    uint key = keyIndex < elementCount ? keysInReference.keys[keyIndex] : 0xffffffff;
     uint radix = bitfieldExtract(key, 8 * pass, 8);
     atomicAdd(localHistogram[radix], 1);
   }
@@ -63,9 +59,9 @@ void main() {
 
   if (index < RADIX) {
     // set to partition histogram
-    histogramReferences.partitionHistogram[RADIX * partitionIndex + index] = localHistogram[index];
+    storageReference.partitionHistogram[RADIX * partitionIndex + index] = localHistogram[index];
 
     // add to global histogram
-    atomicAdd(histogramReferences.globalHistogram[RADIX * pass + index], localHistogram[index]);
+    atomicAdd(storageReference.globalHistogram[RADIX * pass + index], localHistogram[index]);
   }
 }

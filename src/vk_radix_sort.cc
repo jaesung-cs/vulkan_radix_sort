@@ -22,7 +22,7 @@ constexpr int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 
 VkDeviceSize HistogramSize(uint32_t elementCount) {
-  return (4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) *
+  return (1 + 4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) *
          sizeof(uint32_t);
 }
 
@@ -35,8 +35,8 @@ constexpr VkDeviceSize Align(VkDeviceSize offset, VkDeviceSize size) {
 }
 
 struct StorageOffsets {
-  VkDeviceSize histogramOffset = 0;
   VkDeviceSize elementCountOffset = 0;
+  VkDeviceSize histogramOffset = 0;
   VkDeviceSize outOffset = 0;
 };
 
@@ -80,12 +80,11 @@ struct VrdxSorter_T {
 
 struct PushConstants {
   uint32_t pass;
-  VkDeviceAddress histogramReferences;
-  VkDeviceAddress elementCountReferences;
-  VkDeviceAddress keysInReferences;
-  VkDeviceAddress keysOutReferences;
-  VkDeviceAddress valuesInReferences;
-  VkDeviceAddress valuesOutReferences;
+  VkDeviceAddress storageReference;
+  VkDeviceAddress keysInReference;
+  VkDeviceAddress keysOutReference;
+  VkDeviceAddress valuesInReference;
+  VkDeviceAddress valuesOutReference;
 };
 
 void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
@@ -248,17 +247,14 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
 
   // storage
   VkDeviceSize histogramSize = HistogramSize(maxElementCount);
-  VkDeviceSize elementCountSize = sizeof(uint32_t);
   // 2x for key value
   VkDeviceSize inoutSize = 2 * InoutSize(maxElementCount);
 
   // align size from physical device
   StorageOffsets storageOffsets;
-  storageOffsets.histogramOffset = 0;
-  storageOffsets.elementCountOffset =
-      Align(storageOffsets.histogramOffset + histogramSize, storageAlignment);
-  storageOffsets.outOffset = Align(
-      storageOffsets.elementCountOffset + elementCountSize, storageAlignment);
+  storageOffsets.elementCountOffset = 0;
+  storageOffsets.histogramOffset = sizeof(uint32_t);
+  storageOffsets.outOffset = Align(histogramSize, storageAlignment);
   VkDeviceSize storageSize =
       Align(storageOffsets.outOffset + inoutSize, storageAlignment);
 
@@ -410,24 +406,21 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   }
 
   PushConstants pushConstants;
-  pushConstants.histogramReferences =
-      storageAddress + storageOffsets.histogramOffset;
-  pushConstants.elementCountReferences =
+  pushConstants.storageReference =
       storageAddress + storageOffsets.elementCountOffset;
 
   for (int i = 0; i < 4; ++i) {
     pushConstants.pass = i;
-    pushConstants.keysInReferences = keysAddress + keysOffset;
-    pushConstants.keysOutReferences = storageAddress + storageOffsets.outOffset;
-    pushConstants.valuesInReferences = valuesAddress + valuesOffset;
-    pushConstants.valuesOutReferences =
+    pushConstants.keysInReference = keysAddress + keysOffset;
+    pushConstants.keysOutReference = storageAddress + storageOffsets.outOffset;
+    pushConstants.valuesInReference = valuesAddress + valuesOffset;
+    pushConstants.valuesOutReference =
         storageAddress + storageOffsets.outOffset + inoutSize;
 
     if (i % 2 == 1) {
-      std::swap(pushConstants.keysInReferences,
-                pushConstants.keysOutReferences);
-      std::swap(pushConstants.valuesInReferences,
-                pushConstants.valuesOutReferences);
+      std::swap(pushConstants.keysInReference, pushConstants.keysOutReference);
+      std::swap(pushConstants.valuesInReference,
+                pushConstants.valuesOutReference);
     }
 
     vkCmdPushConstants(commandBuffer, layout->pipelineLayout,
