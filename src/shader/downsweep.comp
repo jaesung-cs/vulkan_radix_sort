@@ -12,9 +12,15 @@ const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
 layout (local_size_x = WORKGROUP_SIZE) in;
 
-layout (buffer_reference, std430) readonly buffer Storage {
+layout (buffer_reference, std430) readonly buffer ElementCount {
   uint elementCount;
-  uint globalHistogram[4 * RADIX];  // (4, R)
+};
+
+layout (buffer_reference, std430) readonly buffer GlobalHistogram {
+  uint globalHistogram[];  // (4, R)
+};
+
+layout (buffer_reference, std430) readonly buffer PartitionHistogram {
   uint partitionHistogram[];  // (P, R)
 };
 
@@ -30,12 +36,14 @@ layout (buffer_reference, std430) buffer Values {
 
 layout (push_constant) uniform PushConstant {
   int pass;
-  Storage storageReference;
-  Keys keysInReference;
-  Keys keysOutReference;
+  restrict ElementCount elementCountReference;
+  restrict GlobalHistogram globalHistogramReference;
+  restrict PartitionHistogram partitionHistogramReference;
+  restrict Keys keysInReference;
+  restrict Keys keysOutReference;
 #ifdef KEY_VALUE
-  Values valuesInReference;
-  Values valuesOutReference;
+  restrict Values valuesInReference;
+  restrict Values valuesOutReference;
 #endif
 };
 
@@ -68,7 +76,7 @@ void main() {
   uint partitionIndex = gl_WorkGroupID.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
-  uint elementCount = storageReference.elementCount;
+  uint elementCount = elementCountReference.elementCount;
 
   if (partitionStart >= elementCount) return;
 
@@ -188,7 +196,7 @@ void main() {
   // after atomicAdd, localHistogram contains inclusive sum
   if (index < RADIX) {
     uint v = index == 0 ? 0 : localHistogram[gl_NumSubgroups * index - 1];
-    localHistogramSum[index] = storageReference.globalHistogram[RADIX * pass + index] + storageReference.partitionHistogram[RADIX * partitionIndex + index] - v;
+    localHistogramSum[index] = globalHistogramReference.globalHistogram[RADIX * pass + index] + partitionHistogramReference.partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   barrier();
 

@@ -14,15 +14,23 @@ const int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 // dispatch this shader (RADIX, 1, 1), so that gl_WorkGroupID.x is radix
 layout (local_size_x = WORKGROUP_SIZE) in;
 
-layout (buffer_reference, std430) readonly buffer Storage {
+layout (buffer_reference, std430) readonly buffer ElementCount {
   uint elementCount;
-  uint globalHistogram[4 * RADIX];  // (4, R)
+};
+
+layout (buffer_reference, std430) buffer GlobalHistogram {
+  uint globalHistogram[];  // (4, R)
+};
+
+layout (buffer_reference, std430) buffer PartitionHistogram {
   uint partitionHistogram[];  // (P, R)
 };
 
 layout (push_constant) uniform PushConstant {
   int pass;
-  Storage storageReference;
+  restrict ElementCount elementCountReference;
+  restrict GlobalHistogram globalHistogramReference;
+  restrict PartitionHistogram partitionHistogramReference;
 };
 
 shared uint reduction;
@@ -34,7 +42,7 @@ void main() {
   uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
   uint radix = gl_WorkGroupID.x;
 
-  uint elementCount = storageReference.elementCount;
+  uint elementCount = elementCountReference.elementCount;
 
   uint partitionCount = (elementCount + PARTITION_SIZE - 1) / PARTITION_SIZE;
 
@@ -45,7 +53,7 @@ void main() {
 
   for (uint i = 0; WORKGROUP_SIZE * i < partitionCount; ++i) {
     uint partitionIndex = WORKGROUP_SIZE * i + index;
-    uint value = partitionIndex < partitionCount ? storageReference.partitionHistogram[RADIX * partitionIndex + radix] : 0;
+    uint value = partitionIndex < partitionCount ? partitionHistogramReference.partitionHistogram[RADIX * partitionIndex + radix] : 0;
     uint excl = subgroupExclusiveAdd(value) + reduction;
     uint sum = subgroupAdd(value);
 
@@ -67,7 +75,7 @@ void main() {
 
     if (partitionIndex < partitionCount) {
       excl += intermediate[subgroupIndex];
-      storageReference.partitionHistogram[RADIX * partitionIndex + radix] = excl;
+      partitionHistogramReference.partitionHistogram[RADIX * partitionIndex + radix] = excl;
     }
     barrier();
   }
@@ -75,7 +83,7 @@ void main() {
   if (gl_WorkGroupID.x == 0) {
     // one workgroup is responsible for global histogram prefix sum
     if (index < RADIX) {
-      uint value = storageReference.globalHistogram[RADIX * pass + index];
+      uint value = globalHistogramReference.globalHistogram[RADIX * pass + index];
       uint excl = subgroupExclusiveAdd(value);
       uint sum = subgroupAdd(value);
 
@@ -91,7 +99,7 @@ void main() {
       barrier();
 
       excl += intermediate[subgroupIndex];
-      storageReference.globalHistogram[RADIX * pass + index] = excl;
+      globalHistogramReference.globalHistogram[RADIX * pass + index] = excl;
     }
   }
 }

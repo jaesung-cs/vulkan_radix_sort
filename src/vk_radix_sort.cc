@@ -80,7 +80,9 @@ struct VrdxSorter_T {
 
 struct PushConstants {
   uint32_t pass;
-  VkDeviceAddress storageReference;
+  VkDeviceAddress elementCountReference;
+  VkDeviceAddress globalHistogramReference;
+  VkDeviceAddress partitionHistogramReference;
   VkDeviceAddress keysInReference;
   VkDeviceAddress keysOutReference;
   VkDeviceAddress valuesInReference;
@@ -392,8 +394,13 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   }
 
   PushConstants pushConstants;
-  pushConstants.storageReference =
+  pushConstants.elementCountReference =
       storageAddress + storageOffsets.elementCountOffset;
+  pushConstants.globalHistogramReference =
+      storageAddress + storageOffsets.histogramOffset;
+  pushConstants.partitionHistogramReference = storageAddress +
+                                              storageOffsets.histogramOffset +
+                                              sizeof(uint32_t) * 4 * RADIX;
 
   for (int i = 0; i < 4; ++i) {
     pushConstants.pass = i;
