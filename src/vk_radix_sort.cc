@@ -363,26 +363,12 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
   vkCmdFillBuffer(commandBuffer, storage, storageOffsets.histogramOffset,
                   4 * RADIX * sizeof(uint32_t), 0);
 
-  std::vector<VkBufferMemoryBarrier> bufferMemoryBarriers(2);
-
-  bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  bufferMemoryBarriers[0].buffer = storage;
-  bufferMemoryBarriers[0].offset = storageOffsets.elementCountOffset;
-  bufferMemoryBarriers[0].size = sizeof(uint32_t);
-
-  bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  bufferMemoryBarriers[1].buffer = storage;
-  bufferMemoryBarriers[1].offset = storageOffsets.histogramOffset;
-  bufferMemoryBarriers[1].size = 4 * RADIX * sizeof(uint32_t);
-
+  VkMemoryBarrier memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  memoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
   vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
-                       bufferMemoryBarriers.size(), bufferMemoryBarriers.data(),
-                       0, NULL);
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, NULL, 0, NULL);
 
   if (queryPool) {
     vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -439,18 +425,12 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
     }
 
     // spine
-    bufferMemoryBarriers.resize(1);
-    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    bufferMemoryBarriers[0].buffer = storage;
-    bufferMemoryBarriers[0].offset = storageOffsets.histogramOffset;
-    bufferMemoryBarriers[0].size = histogramSize;
-
+    memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
-                         bufferMemoryBarriers.size(),
-                         bufferMemoryBarriers.data(), 0, NULL);
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, NULL, 0, NULL);
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                       layout->spinePipeline);
@@ -463,17 +443,12 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
     }
 
     // downsweep
-    bufferMemoryBarriers.resize(1);
-    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    bufferMemoryBarriers[0].buffer = storage;
-    bufferMemoryBarriers[0].offset = storageOffsets.histogramOffset;
-    bufferMemoryBarriers[0].size = histogramSize;
+    memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
-                         bufferMemoryBarriers.size(),
-                         bufferMemoryBarriers.data(), 0, NULL);
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, NULL, 0, NULL);
 
     if (valuesBuffer) {
       vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -491,67 +466,18 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
     }
 
     if (i < 3) {
-      bufferMemoryBarriers.resize(2);
-
-      bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      bufferMemoryBarriers[0].buffer = storage;
-      bufferMemoryBarriers[0].offset = storageOffsets.histogramOffset;
-      bufferMemoryBarriers[0].size = histogramSize;
-
-      bufferMemoryBarriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      bufferMemoryBarriers[1].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      bufferMemoryBarriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      bufferMemoryBarriers[1].buffer = i % 2 == 0 ? storage : keysBuffer;
-      bufferMemoryBarriers[1].offset =
-          i % 2 == 0 ? storageOffsets.outOffset : keysOffset;
-      bufferMemoryBarriers[1].size = inoutSize;
-
-      if (valuesBuffer) {
-        bufferMemoryBarriers.resize(3);
-        bufferMemoryBarriers[2] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        bufferMemoryBarriers[2].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        bufferMemoryBarriers[2].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        bufferMemoryBarriers[2].buffer = i % 2 == 0 ? storage : valuesBuffer;
-        bufferMemoryBarriers[2].offset =
-            i % 2 == 0 ? storageOffsets.outOffset + inoutSize : valuesOffset;
-        bufferMemoryBarriers[2].size = inoutSize;
-      }
-
+      memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
       vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL,
-                           bufferMemoryBarriers.size(),
-                           bufferMemoryBarriers.data(), 0, NULL);
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                           &memoryBarrier, 0, NULL, 0, NULL);
     }
   }
 
   if (queryPool) {
     vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                         queryPool, query + 14);
-  }
-
-  // barrier between next command
-  {
-    bufferMemoryBarriers.resize(1);
-
-    bufferMemoryBarriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    bufferMemoryBarriers[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT |
-                                            VK_ACCESS_SHADER_WRITE_BIT |
-                                            VK_ACCESS_TRANSFER_WRITE_BIT;
-    bufferMemoryBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
-                                            VK_ACCESS_SHADER_WRITE_BIT |
-                                            VK_ACCESS_TRANSFER_WRITE_BIT;
-    bufferMemoryBarriers[0].buffer = storage;
-    bufferMemoryBarriers[0].offset = 0;
-    bufferMemoryBarriers[0].size = VK_WHOLE_SIZE;
-
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0, 0, NULL, bufferMemoryBarriers.size(), bufferMemoryBarriers.data(), 0,
-        NULL);
   }
 }
 

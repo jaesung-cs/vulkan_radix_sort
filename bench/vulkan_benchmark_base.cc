@@ -251,30 +251,23 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   // sort
-  VkBufferMemoryBarrier buffer_barrier = {
-      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  buffer_barrier.buffer = keys_.buffer;
-  buffer_barrier.offset = 0;
-  buffer_barrier.size = element_count * sizeof(uint32_t);
+  VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
   vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 1,
-                       &buffer_barrier, 0, NULL);
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0,
+                       NULL, 0, NULL);
 
   vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
               query_pool_, 0);
 
   // copy back
-  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  buffer_barrier.buffer = keys_.buffer;
-  buffer_barrier.offset = 0;
-  buffer_barrier.size = element_count * sizeof(uint32_t);
+  barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
   vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1,
-                       &buffer_barrier, 0, NULL);
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, NULL,
+                       0, NULL);
 
   region.srcOffset = 0;
   region.dstOffset = 0;
@@ -332,16 +325,12 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   // sort
-  VkBufferMemoryBarrier buffer_barrier = {
-      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  buffer_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  buffer_barrier.buffer = keys_.buffer;
-  buffer_barrier.offset = 0;
-  buffer_barrier.size = (2 * element_count + 1) * sizeof(uint32_t);
+  VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
   vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 1,
-                       &buffer_barrier, 0, NULL);
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0,
+                       NULL, 0, NULL);
 
   vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, keys_.buffer,
                               2 * element_count * sizeof(uint32_t),
@@ -349,15 +338,12 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
                               element_count * sizeof(uint32_t), query_pool_, 0);
 
   // copy back
-  buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  buffer_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  buffer_barrier.buffer = keys_.buffer;
-  buffer_barrier.offset = 0;
-  buffer_barrier.size = 2 * element_count * sizeof(uint32_t);
+  barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
   vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1,
-                       &buffer_barrier, 0, NULL);
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, NULL,
+                       0, NULL);
 
   region.srcOffset = 0;
   region.dstOffset = 0;
