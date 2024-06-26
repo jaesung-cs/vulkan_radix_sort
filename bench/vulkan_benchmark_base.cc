@@ -327,10 +327,12 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
   // sort
   VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0,
-                       NULL, 0, NULL);
+  barrier.dstAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+  vkCmdPipelineBarrier(
+      command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+      1, &barrier, 0, NULL, 0, NULL);
 
   vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, keys_.buffer,
                               2 * element_count * sizeof(uint32_t),

@@ -61,7 +61,7 @@ $ ./build/bench  # Linux
     VrdxSorterLayoutCreateInfo sorterLayoutInfo = {};
     sorterLayoutInfo.physicalDevice = physicalDevice;
     sorterLayoutInfo.device = device;
-    VrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
+    vrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
     ```
 
 1. Create `VrdxSorter` from `VrdxSorterLayout`.
@@ -69,6 +69,7 @@ $ ./build/bench  # Linux
     `VrdxSorter` owns a temporary storage buffer. The size of temporary storage is `2N` for key/value output, plus histogram.
 
     ```c++
+    VrdxSorter sorter = VK_NULL_HANDLE;
     VrdxSorterCreateInfo sorterInfo = {};
     sorterInfo.allocator = allocator;  // VmaAllocator
     sorterInfo.sorterLayout = sorterLayout;
@@ -82,19 +83,25 @@ $ ./build/bench  # Linux
 
     So, users must not expect previously bound targets retain after the sort command.
 
-    User must add proper barriers for key/value buffers.
+    Users must add proper **execution barriers**.
 
-    The second synchronization scope **before** sort command for **key/value buffer** must include `COMPUTE_SHADER` stage and `SHADER_READ` access.
+    One can use buffer memory barrier, but in general, global barriers are more efficient than per-resource, according to [official synchronization examples](https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples#three-dispatches-first-dispatch-writes-to-one-storage-buffer-second-dispatch-writes-to-a-different-storage-buffer-third-dispatch-reads-both):
 
-    The second synchronization scope **before** sort command for **indirect buffer** must include `TRANSFER` stage and `TRANSFER_READ` access.
+    > ... global memory barrier covers all resources. Generally considered more efficient to do a global memory barrier than per-resource barriers, per-resource barriers should usually be used for queue ownership transfers and image layout transitions - otherwise use global barriers.
 
-    The first synchronization scope **after** sort command for **key/value buffer** must include `COMPUTE_SHADER` stage and `SHADER_WRITE` access.
+    The sort command will read from key/value buffers (and elementCount buffer for indirect sort) in compute shader stage, and write to output key/value buffers in later compute shader stage.
 
-    The first synchronization scope **after** sort command for **indirect buffer** must include `TRANSFER` stage and `TRANSFER_READ` access.
+    The second synchronization scope **before** sort command must include `COMPUTE_SHADER` stage (and `TRANSFER` for indirect sort) and `SHADER_READ` access (and `TRANSFER_READ` for indirect sort).
+
+    The first synchronization scope **after** sort command must include `COMPUTE_SHADER` stage and `SHADER_WRITE` access.
 
     ```c++
     VkQueryPool queryPool;  // VK_NULL_HANDLE, or a valid timestamp query pool with size at least 8.
+
+    // sort keys
     vrdxCmdSort(commandBuffer, sorter, elementCount, keysBuffer, 0, queryPool, 0);
+
+    // sort keys with values
     vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
 
     // indirectBuffer contains elementCount, a single uint entry in GPU buffer.
