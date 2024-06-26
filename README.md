@@ -1,13 +1,16 @@
 # vulkan_radix_sort
+
 Vulkan implementation of radix sort.
 
-State-of-the-art GPU radix sort algorithm, [Onesweep (Link to NVidia Research)](https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus), is implemented.
+Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.)
 
 
 ## Requirements
 - `VulkanSDK>=1.2`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
   - Requires several features available in `1.2`.
+  - Must support `VK_KHR_buffer_device_address`:
+    - Run `vulkaninfo` and check if `VK_KHR_buffer_device_address` device extension is available.
 - `cmake>=3.15`
 
 
@@ -43,54 +46,62 @@ $ ./build/bench  # Linux
     ```
 
 ## Usage
-1. When creating `VkDevice`, enable `VK_KHR_maintenance4` and `VK_KHR_synchronization2` device features.
+1. When creating `VkDevice`, enable `VkPhysicalDeviceBufferAddressFeatures`.
+
+1. When creating `VmaAllocator`, enable `VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` flag.
+
+1. Create `VkBuffer` for keys and values, with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT` and `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`.
 
 1. Create `VrdxSorterLayout`
 
-    It creates shared resources: descriptor layouts, pipeline layouts, pipelines, etc.
+    It creates shared resources: pipeline layouts, pipelines, etc.
 
     ```c++
     VrdxSorterLayout sorterLayout = VK_NULL_HANDLE;
     VrdxSorterLayoutCreateInfo sorterLayoutInfo = {};
-    sorterLayoutInfo.device = device_;
-    sorterLayoutInfo.histogramWorkgroupSize = 1024;
-    VrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
+    sorterLayoutInfo.physicalDevice = physicalDevice;
+    sorterLayoutInfo.device = device;
+    vrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
     ```
 
 1. Create `VrdxSorter` from `VrdxSorterLayout`.
 
     `VrdxSorter` owns a temporary storage buffer. The size of temporary storage is `2N` for key/value output, plus histogram.
 
-    It also create its own descriptor pool and descriptor sets of size equal to `maxCommandsInFlight`.
-
     ```c++
+    VrdxSorter sorter = VK_NULL_HANDLE;
     VrdxSorterCreateInfo sorterInfo = {};
     sorterInfo.allocator = allocator;  // VmaAllocator
     sorterInfo.sorterLayout = sorterLayout;
     sorterInfo.maxElementCount = 10000000;
-    sorterInfo.maxCommandsInFlight = 2;
     vrdxCreateSorter(&sorterInfo, &sorter);
     ```
 
 1. Record sort commands.
 
-    This command binds pipeline, pipeline layout, descriptors, and push constants internally.
+    This command binds pipeline, pipeline layout, and push constants internally.
 
     So, users must not expect previously bound targets retain after the sort command.
 
-    User must add proper barriers for key/value buffers.
+    Users must add proper **execution barriers**.
 
-    The second synchronization scope **before** sort command for **key/value buffer** must include `COMPUTE_SHADER` stage and `SHADER_READ` access.
+    One can use buffer memory barrier, but in general, global barriers are more efficient than per-resource, according to [official synchronization examples](https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples#three-dispatches-first-dispatch-writes-to-one-storage-buffer-second-dispatch-writes-to-a-different-storage-buffer-third-dispatch-reads-both):
 
-    The second synchronization scope **before** sort command for **indirect buffer** must include `TRANSFER` stage and `TRANSFER_READ` access.
+    > ... global memory barrier covers all resources. Generally considered more efficient to do a global memory barrier than per-resource barriers, per-resource barriers should usually be used for queue ownership transfers and image layout transitions - otherwise use global barriers.
 
-    The first synchronization scope **after** sort command for **key/value buffer** must include `COMPUTE_SHADER` stage and `SHADER_WRITE` access.
+    The sort command will read from key/value buffers (and elementCount buffer for indirect sort) in compute shader stage, and write to output key/value buffers in later compute shader stage.
 
-    The first synchronization scope **after** sort command for **indirect buffer** must include `TRANSFER` stage and `TRANSFER_READ` access.
+    The second synchronization scope **before** sort command must include `COMPUTE_SHADER` stage (and `TRANSFER` for indirect sort) and `SHADER_READ` access (and `TRANSFER_READ` for indirect sort).
+
+    The first synchronization scope **after** sort command must include `COMPUTE_SHADER` stage and `SHADER_WRITE` access.
 
     ```c++
     VkQueryPool queryPool;  // VK_NULL_HANDLE, or a valid timestamp query pool with size at least 8.
+
+    // sort keys
     vrdxCmdSort(commandBuffer, sorter, elementCount, keysBuffer, 0, queryPool, 0);
+
+    // sort keys with values
     vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
 
     // indirectBuffer contains elementCount, a single uint entry in GPU buffer.
