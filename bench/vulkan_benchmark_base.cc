@@ -180,7 +180,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   VrdxSorterCreateInfo sorter_info = {};
   sorter_info.allocator = allocator_;
   sorter_info.sorterLayout = sorter_layout_;
-  sorter_info.maxElementCount = 10000000;
+  sorter_info.maxElementCount = MAX_ELEMENT_COUNT;
   vrdxCreateSorter(&sorter_info, &sorter_);
 
   // preallocate buffers

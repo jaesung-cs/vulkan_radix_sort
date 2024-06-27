@@ -109,14 +109,10 @@ $ ./build/bench  # Linux
     ```
 
 
-## Current Limitations
-- `maxElementCount` $\le$ 10000000.
-
-
 ## TODO
 - [x] Use `VkPhysicalDeviceLimits` to get compute shader-related limits, such as `maxComputeWorkGroupSize` or `maxComputeSharedMemorySize`.
-- [ ] Increase allowed `maxElementCount` by allocating buffers properly.
-- [ ] Compare with CUB radix sort
+- [x] Increase allowed `maxElementCount` by allocating buffers properly.
+- [x] Compare with CUB radix sort
 - [ ] Compare with VkRadixSort
 
 

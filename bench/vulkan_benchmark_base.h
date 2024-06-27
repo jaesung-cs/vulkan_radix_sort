@@ -42,8 +42,7 @@ class VulkanBenchmarkBase {
   VrdxSorter sorter_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
-  static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 24;
-  static constexpr uint32_t PARTITION_SIZE = 7680;
+  static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 25;
 
   struct Buffer {
     VkBuffer buffer = VK_NULL_HANDLE;
