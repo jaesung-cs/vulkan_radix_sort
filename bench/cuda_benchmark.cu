@@ -1,8 +1,8 @@
-#include "cuda_benchmark_base.h"
+#include "cuda_benchmark.h"
 
 #include <cub/cub.cuh>
 
-CudaBenchmarkBase::CudaBenchmarkBase() {
+CudaBenchmark::CudaBenchmark() {
   cudaStreamCreate(&stream_);
   cudaEventCreate(&start_timestamp_);
   cudaEventCreate(&end_timestamp_);
@@ -14,7 +14,7 @@ CudaBenchmarkBase::CudaBenchmarkBase() {
   cudaMalloc(&out_values_ptr_, MAX_ELEMENT_COUNT * sizeof(uint32_t));
 }
 
-CudaBenchmarkBase::~CudaBenchmarkBase() {
+CudaBenchmark::~CudaBenchmark() {
   cudaStreamDestroy(stream_);
   cudaEventDestroy(start_timestamp_);
   cudaEventDestroy(end_timestamp_);
@@ -26,8 +26,7 @@ CudaBenchmarkBase::~CudaBenchmarkBase() {
   cudaFree(out_values_ptr_);
 }
 
-CudaBenchmarkBase::Results CudaBenchmarkBase::Sort(
-    const std::vector<uint32_t> &keys) {
+CudaBenchmark::Results CudaBenchmark::Sort(const std::vector<uint32_t> &keys) {
   auto n = keys.size();
 
   Results result;
@@ -69,7 +68,7 @@ CudaBenchmarkBase::Results CudaBenchmarkBase::Sort(
   return result;
 }
 
-CudaBenchmarkBase::Results CudaBenchmarkBase::SortKeyValue(
+CudaBenchmark::Results CudaBenchmark::SortKeyValue(
     const std::vector<uint32_t> &keys, const std::vector<uint32_t> &values) {
   auto n = keys.size();
 

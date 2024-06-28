@@ -2,28 +2,22 @@
 #include <iomanip>
 
 #include "data_generator.h"
-#include "cuda_benchmark_base.h"
-#include "vulkan_benchmark_base.h"
+#include "cuda_benchmark.h"
+#include "vulkan_benchmark.h"
 
 int main() {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
   // target: 15 GItems/s for key, 11 GItems/s for kv sort, 4.19e6 items (A100)
   int size = 33554432;
-  auto data = GenerateUniformRandomData(size);
 
-  std::cout << "keys" << std::endl;
-  std::cout << std::hex;
-  for (int i = 0; i < size && i < 16; ++i) {
-    std::cout << std::setfill('0') << std::setw(8) << data.keys[i] << " ";
-  }
-  std::cout << std::dec << std::endl;
-
-  CudaBenchmarkBase cuda_benchmark;
-  VulkanBenchmarkBase vulkan_benchmark;
+  CudaBenchmark cuda_benchmark;
+  VulkanBenchmark vulkan_benchmark;
 
   {
     std::cout << "================ sort ================" << std::endl;
+    auto data = GenerateUniformRandomData(size);
+
     std::cout << "cuda sort" << std::endl;
     auto result0 = cuda_benchmark.Sort(data.keys);
     {
@@ -43,18 +37,12 @@ int main() {
       std::cout << "total time: "
                 << static_cast<double>(result1.total_time) / 1e6 << "ms ("
                 << perf << " GItems/s)" << std::endl;
-      for (int i = 0; i < result1.reduce_then_scan_times.size(); ++i) {
-        std::cout << "reduce-then-scan time " << i << ": "
-                  << static_cast<double>(result1.reduce_then_scan_times[i]) /
-                         1e6
-                  << "ms" << std::endl;
-      }
     }
 
     bool diff = false;
     int diff_location = -1;
     for (int j = 0; j < result0.keys.size(); ++j) {
-      if (result0.keys[j] != result1.keys[3][j]) {
+      if (result0.keys[j] != result1.keys[j]) {
         diff = true;
         if (diff_location == -1) {
           diff_location = j;
@@ -75,8 +63,8 @@ int main() {
                   << " ";
       std::cout << std::endl;
       for (int j = diff_location;
-           j < result1.keys[3].size() && j < diff_location + 16; ++j)
-        std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
+           j < result1.keys.size() && j < diff_location + 16; ++j)
+        std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
                   << " ";
       std::cout << std::dec << std::endl;
 
@@ -87,7 +75,7 @@ int main() {
                   << " ";
       std::cout << std::endl;
       for (int j = std::max(size - 16, 0); j < size; ++j)
-        std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
+        std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
                   << " ";
       std::cout << std::dec << std::endl;
     } else {
@@ -100,6 +88,7 @@ int main() {
   {
     std::cout << "================ sort key value ================"
               << std::endl;
+    auto data = GenerateUniformRandomData(size);
     std::cout << "cuda sort" << std::endl;
     auto result0 = cuda_benchmark.SortKeyValue(data.keys, data.values);
     {
@@ -119,12 +108,6 @@ int main() {
       std::cout << "total time: "
                 << static_cast<double>(result1.total_time) / 1e6 << "ms ("
                 << perf << " GItems/s)" << std::endl;
-      for (int i = 0; i < result1.reduce_then_scan_times.size(); ++i) {
-        std::cout << "reduce-then-scan time " << i << ": "
-                  << static_cast<double>(result1.reduce_then_scan_times[i]) /
-                         1e6
-                  << "ms" << std::endl;
-      }
     }
 
     bool diff_keys = false;
@@ -132,7 +115,7 @@ int main() {
     int diff_value_location = 0;
     int diff_value_count = 0;
     for (int j = 0; j < result0.keys.size(); ++j) {
-      if (result0.keys[j] != result1.keys[3][j]) {
+      if (result0.keys[j] != result1.keys[j]) {
         diff_keys = true;
       }
       if (result0.values[j] != result1.values[j]) {
@@ -153,8 +136,8 @@ int main() {
           std::cout << std::setfill('0') << std::setw(8) << result0.keys[j]
                     << " ";
         std::cout << std::endl;
-        for (int j = 0; j < result1.keys[3].size() && j < 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
+        for (int j = 0; j < result1.keys.size() && j < 16; ++j)
+          std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
                     << " ";
         std::cout << std::dec << std::endl;
       }
@@ -175,7 +158,7 @@ int main() {
         std::cout << std::endl;
         for (int j = diff_value_location;
              j < size && j < diff_value_location + 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result1.keys[3][j]
+          std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
                     << " ";
         std::cout << std::endl;
         for (int j = diff_value_location;

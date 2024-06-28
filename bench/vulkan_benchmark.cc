@@ -1,7 +1,6 @@
-#include "vulkan_benchmark_base.h"
+#include "vulkan_benchmark.h"
 
 #include <iostream>
-#include <vector>
 
 namespace {
 
@@ -45,7 +44,7 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
 
 }  // namespace
 
-VulkanBenchmarkBase::VulkanBenchmarkBase() {
+VulkanBenchmark::VulkanBenchmark() {
   // instance
   VkApplicationInfo application_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
   application_info.pApplicationName = "vk_radix_sort_benchmark";
@@ -213,7 +212,7 @@ VulkanBenchmarkBase::VulkanBenchmarkBase() {
   }
 }
 
-VulkanBenchmarkBase::~VulkanBenchmarkBase() {
+VulkanBenchmark::~VulkanBenchmark() {
   vkDeviceWaitIdle(device_);
 
   vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
@@ -230,7 +229,7 @@ VulkanBenchmarkBase::~VulkanBenchmarkBase() {
   vkDestroyInstance(instance_, NULL);
 }
 
-VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
+VulkanBenchmark::Results VulkanBenchmark::Sort(
     const std::vector<uint32_t>& keys) {
   auto element_count = keys.size();
 
@@ -288,19 +287,15 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::Sort(
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 
-  IntermediateResults result;
-  result.keys[3].resize(element_count);
-  std::memcpy(result.keys[3].data(), staging_.map,
+  Results result;
+  result.keys.resize(element_count);
+  std::memcpy(result.keys.data(), staging_.map,
               element_count * sizeof(uint32_t));
   result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
-  result.reduce_then_scan_times.resize(14);
-  for (int i = 0; i < 14; ++i) {
-    result.reduce_then_scan_times[i] = timestamps[i + 1] - timestamps[i];
-  }
   return result;
 }
 
-VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
+VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
   auto element_count = keys.size();
 
@@ -366,18 +361,14 @@ VulkanBenchmarkBase::IntermediateResults VulkanBenchmarkBase::SortKeyValue(
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 
-  IntermediateResults result;
-  result.keys[3].resize(element_count);
+  Results result;
+  result.keys.resize(element_count);
   result.values.resize(element_count);
-  std::memcpy(result.keys[3].data(), staging_.map,
+  std::memcpy(result.keys.data(), staging_.map,
               element_count * sizeof(uint32_t));
   std::memcpy(result.values.data(),
               staging_.map + element_count * sizeof(uint32_t),
               element_count * sizeof(uint32_t));
   result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
-  result.reduce_then_scan_times.resize(14);
-  for (int i = 0; i < 14; ++i) {
-    result.reduce_then_scan_times[i] = timestamps[i + 1] - timestamps[i];
-  }
   return result;
 }

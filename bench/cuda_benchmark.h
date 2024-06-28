@@ -1,27 +1,21 @@
-#ifndef VK_RADIX_SORT_CUDA_BENCHMARK_BASE_H
-#define VK_RADIX_SORT_CUDA_BENCHMARK_BASE_H
+#ifndef VK_RADIX_SORT_CUDA_BENCHMARK_H
+#define VK_RADIX_SORT_CUDA_BENCHMARK_H
 
-#include <vector>
+#include "benchmark_base.h"
 
 #include <cuda_runtime.h>
 
-class CudaBenchmarkBase {
+class CudaBenchmark : public BenchmarkBase {
  private:
-  struct Results {
-    std::vector<uint32_t> keys;
-    std::vector<uint32_t> values;
-    uint64_t total_time = 0;  // ns
-  };
-
   static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 25;
 
  public:
-  CudaBenchmarkBase();
-  ~CudaBenchmarkBase();
+  CudaBenchmark();
+  ~CudaBenchmark() override;
 
-  Results Sort(const std::vector<uint32_t>& keys);
+  Results Sort(const std::vector<uint32_t>& keys) override;
   Results SortKeyValue(const std::vector<uint32_t>& keys,
-                       const std::vector<uint32_t>& values);
+                       const std::vector<uint32_t>& values) override;
 
  private:
   cudaStream_t stream_ = 0;
@@ -36,4 +30,4 @@ class CudaBenchmarkBase {
   void* out_values_ptr_ = nullptr;
 };
 
-#endif  // VK_RADIX_SORT_CUDA_BENCHMARK_BASE_H
+#endif  // VK_RADIX_SORT_CUDA_BENCHMARK_H
