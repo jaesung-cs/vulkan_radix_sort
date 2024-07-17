@@ -70,11 +70,11 @@ if (PROJECT_IS_TOP_LEVEL)
 
   add_executable(bench
     bench/bench.cc
-    bench/cpu_benchmark_base.cc
-    bench/cuda_benchmark_base.cu
+    bench/cpu_benchmark.cc
+    bench/cuda_benchmark.cu
     bench/data_generator.cc
     bench/vma_impl.cc
-    bench/vulkan_benchmark_base.cc
+    bench/vulkan_benchmark.cc
   )
   target_link_libraries(bench PRIVATE vk_radix_sort)
 endif()

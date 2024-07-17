@@ -1,7 +1,7 @@
-#ifndef VK_RADIX_SORT_VULKAN_BENCHMARK_BASE_H
-#define VK_RADIX_SORT_VULKAN_BENCHMARK_BASE_H
+#ifndef VK_RADIX_SORT_VULKAN_BENCHMARK_H
+#define VK_RADIX_SORT_VULKAN_BENCHMARK_H
 
-#include <vector>
+#include "benchmark_base.h"
 
 #include <vulkan/vulkan.h>
 
@@ -9,23 +9,14 @@
 
 #include <vk_radix_sort.h>
 
-class VulkanBenchmarkBase {
- private:
-  struct IntermediateResults {
-    std::vector<uint32_t> keys[4];
-    std::vector<uint32_t> values;
-
-    uint64_t total_time = 0;
-    std::vector<uint64_t> reduce_then_scan_times;
-  };
-
+class VulkanBenchmark : public BenchmarkBase {
  public:
-  VulkanBenchmarkBase();
-  ~VulkanBenchmarkBase();
+  VulkanBenchmark();
+  ~VulkanBenchmark() override;
 
-  IntermediateResults Sort(const std::vector<uint32_t>& keys);
-  IntermediateResults SortKeyValue(const std::vector<uint32_t>& keys,
-                                   const std::vector<uint32_t>& values);
+  Results Sort(const std::vector<uint32_t>& keys) override;
+  Results SortKeyValue(const std::vector<uint32_t>& keys,
+                       const std::vector<uint32_t>& values) override;
 
  private:
   VkInstance instance_ = VK_NULL_HANDLE;
@@ -42,8 +33,7 @@ class VulkanBenchmarkBase {
   VrdxSorter sorter_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
-  static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 24;
-  static constexpr uint32_t PARTITION_SIZE = 7680;
+  static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 25;
 
   struct Buffer {
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -55,4 +45,4 @@ class VulkanBenchmarkBase {
   Buffer staging_;
 };
 
-#endif  // VK_RADIX_SORT_VULKAN_BENCHMARK_BASE_H
+#endif  // VK_RADIX_SORT_VULKAN_BENCHMARK_H
