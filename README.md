@@ -33,6 +33,21 @@ $ ./build/bench  # Linux
 - Windows, NVIDIA GeForce RTX 4090.
 
 
+### Benchmark Result
+- Not precisely benchmarked, but the speed is competitive compare to CUB radix sort.
+- 32-bit key-only: my implementation is 10% slower when sorting 33M (2^25) elements.
+- 32-bit Key-value: my implementation is 15-20% faster when sorting 33M (2^25) key-value pairs.
+- Note that CUB radix sort is not in-place operation. It may require an additional copy operation, or double storage.
+```
+================ sort key value speed ================
+[0] total time: CUB 4.20352ms (7.98246 GItems/s) vs. Vulkan 3.52461ms (9.52005 GItems/s)
+[1] total time: CUB 4.17075ms (8.04518 GItems/s) vs. Vulkan 3.49389ms (9.60375 GItems/s)
+[2] total time: CUB 4.16768ms (8.05111 GItems/s) vs. Vulkan 3.50896ms (9.5625 GItems/s)
+[3] total time: CUB 4.12774ms (8.129 GItems/s) vs. Vulkan 3.7161ms (9.02948 GItems/s)
+[4] total time: CUB 4.16666ms (8.05308 GItems/s) vs. Vulkan 3.45875ms (9.70131 GItems/s)
+...
+```
+
 ## Use as a Library with CMake
 - Add `VulkanMemoryAllocator` before addigng `vulkan_radix_sort`
     ```cmake
@@ -114,6 +129,8 @@ $ ./build/bench  # Linux
 - [x] Increase allowed `maxElementCount` by allocating buffers properly.
 - [x] Compare with CUB radix sort
 - [ ] Compare with VkRadixSort
+- [ ] Compare with Fuchsia radix sort
+- [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.
 
 
 ## References
