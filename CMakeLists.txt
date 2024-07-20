@@ -54,7 +54,7 @@ target_include_directories(vk_radix_sort
 )
 
 target_link_libraries(vk_radix_sort
-  PUBLIC Vulkan::Vulkan VulkanMemoryAllocator
+  PUBLIC Vulkan::Vulkan
 )
 
 add_shader(vk_radix_sort src/shader/upsweep.comp upsweep_comp)
@@ -76,5 +76,5 @@ if (PROJECT_IS_TOP_LEVEL)
     bench/vma_impl.cc
     bench/vulkan_benchmark.cc
   )
-  target_link_libraries(bench PRIVATE vk_radix_sort)
+  target_link_libraries(bench PRIVATE vk_radix_sort VulkanMemoryAllocator)
 endif()

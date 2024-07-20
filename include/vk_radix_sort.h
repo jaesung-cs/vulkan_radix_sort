@@ -3,42 +3,36 @@
 
 #include <vulkan/vulkan.h>
 
-#include "vk_mem_alloc.h"
-
-struct VrdxSorterLayout_T;
 struct VrdxSorter_T;
 
 /**
- * VrdxSorterLayout creates shared resources, such as pipelines.
- */
-VK_DEFINE_HANDLE(VrdxSorterLayout)
-
-/**
- * VrdxSorter creates internal resources.
+ * VrdxSorter creates pipelines.
  */
 VK_DEFINE_HANDLE(VrdxSorter)
 
-struct VrdxSorterLayoutCreateInfo {
+struct VrdxSorterCreateInfo {
   VkPhysicalDevice physicalDevice;
   VkDevice device;
   VkPipelineCache pipelineCache;
 };
 
-struct VrdxSorterCreateInfo {
-  VrdxSorterLayout sorterLayout;
-  VmaAllocator allocator;
-  uint32_t maxElementCount;
-};
-
-void vrdxCreateSorterLayout(const VrdxSorterLayoutCreateInfo* pCreateInfo,
-                            VrdxSorterLayout* pSorterLayout);
-
-void vrdxDestroySorterLayout(VrdxSorterLayout sorterLayout);
-
 void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo,
                       VrdxSorter* pSorter);
 
 void vrdxDestroySorter(VrdxSorter sorter);
+
+struct VrdxSorterStorageRequirements {
+  VkDeviceSize size;
+  VkBufferUsageFlags usage;
+};
+
+void vrdxGetSorterStorageRequirements(
+    VrdxSorter sorter, uint32_t maxElementCount,
+    VrdxSorterStorageRequirements* requirements);
+
+void vrdxGetSorterKeyValueStorageRequirements(
+    VrdxSorter sorter, uint32_t maxElementCount,
+    VrdxSorterStorageRequirements* requirements);
 
 /**
  * if queryPool is not VK_NULL_HANDLE, it writes timestamps to N entries
@@ -54,18 +48,22 @@ void vrdxDestroySorter(VrdxSorter sorter);
  */
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                  uint32_t elementCount, VkBuffer keysBuffer,
-                 VkDeviceSize keysOffset, VkQueryPool queryPool,
+                 VkDeviceSize keysOffset, VkBuffer storageBuffer,
+                 VkDeviceSize storageOffset, VkQueryPool queryPool,
                  uint32_t query);
 
 void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                         VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
-                         VkBuffer keysBuffer, VkDeviceSize keysOffset,
-                         VkQueryPool queryPool, uint32_t query);
+                         uint32_t maxElementCount, VkBuffer indirectBuffer,
+                         VkDeviceSize indirectOffset, VkBuffer keysBuffer,
+                         VkDeviceSize keysOffset, VkBuffer storageBuffer,
+                         VkDeviceSize storageOffset, VkQueryPool queryPool,
+                         uint32_t query);
 
 void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
                          uint32_t elementCount, VkBuffer keysBuffer,
                          VkDeviceSize keysOffset, VkBuffer valuesBuffer,
-                         VkDeviceSize valuesOffset, VkQueryPool queryPool,
+                         VkDeviceSize valuesOffset, VkBuffer storageBuffer,
+                         VkDeviceSize storageOffset, VkQueryPool queryPool,
                          uint32_t query);
 
 /**
@@ -79,12 +77,11 @@ void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter,
  *
  * indirectBuffer requires TRANSFER_SRC buffer usage flag.
  */
-void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer,
-                                 VrdxSorter sorter, VkBuffer indirectBuffer,
-                                 VkDeviceSize indirectOffset,
-                                 VkBuffer keysBuffer, VkDeviceSize keysOffset,
-                                 VkBuffer valuesBuffer,
-                                 VkDeviceSize valuesOffset,
-                                 VkQueryPool queryPool, uint32_t query);
+void vrdxCmdSortKeyValueIndirect(
+    VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t maxElementCount,
+    VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer keysBuffer,
+    VkDeviceSize keysOffset, VkBuffer valuesBuffer, VkDeviceSize valuesOffset,
+    VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
+    uint32_t query);
 
 #endif  // VK_RADIX_SORT_H

@@ -29,11 +29,8 @@ class VulkanBenchmark : public BenchmarkBase {
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
-  VrdxSorterLayout sorter_layout_ = VK_NULL_HANDLE;
   VrdxSorter sorter_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
-
-  static constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 25;
 
   struct Buffer {
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -41,7 +38,7 @@ class VulkanBenchmark : public BenchmarkBase {
     uint8_t* map = nullptr;
   };
   Buffer keys_;
-  Buffer indirect_;
+  Buffer storage_;
   Buffer staging_;
 };
 
