@@ -14,12 +14,6 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 - `cmake>=3.15`
 
 
-## Dependencies
-- `VulkanMemoryAllocator`
-  - To avoid conflict with parent project which also depends on a specific version of `VulkanMemoryAllocator`, this library only contains forward declaration.
-  - The parent must contains a cpp file with `#define VMA_IMPLEMENTATION`.
-
-
 ## Build and Test
 ```bash
 $ cmake . -B build
@@ -49,9 +43,8 @@ $ ./build/bench  # Linux
 ```
 
 ## Use as a Library with CMake
-- Add `VulkanMemoryAllocator` before addigng `vulkan_radix_sort`
+- Add subdirectory `vulkan_radix_sort`
     ```cmake
-    add_subdirectory(path/to/VulkanMemoryAllocator)
     add_subdirectory(path/to/vulkan_radix_sort)
     ```
 
@@ -67,29 +60,34 @@ $ ./build/bench  # Linux
 
 1. Create `VkBuffer` for keys and values, with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT` and `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`.
 
-1. Create `VrdxSorterLayout`
+1. Create `VrdxSorter`
 
     It creates shared resources: pipeline layouts, pipelines, etc.
 
     ```c++
-    VrdxSorterLayout sorterLayout = VK_NULL_HANDLE;
-    VrdxSorterLayoutCreateInfo sorterLayoutInfo = {};
-    sorterLayoutInfo.physicalDevice = physicalDevice;
-    sorterLayoutInfo.device = device;
-    vrdxCreateSorterLayout(&sorterLayoutInfo, &sorterLayout);
-    ```
-
-1. Create `VrdxSorter` from `VrdxSorterLayout`.
-
-    `VrdxSorter` owns a temporary storage buffer. The size of temporary storage is `2N` for key/value output, plus histogram.
-
-    ```c++
     VrdxSorter sorter = VK_NULL_HANDLE;
     VrdxSorterCreateInfo sorterInfo = {};
-    sorterInfo.allocator = allocator;  // VmaAllocator
-    sorterInfo.sorterLayout = sorterLayout;
-    sorterInfo.maxElementCount = 10000000;
+    sorterInfo.physicalDevice = physicalDevice;
+    sorterInfo.device = device;
+    sorterInfo.pipelineCache = pipelineCache;
     vrdxCreateSorter(&sorterInfo, &sorter);
+    ```
+
+1. Create a temporary storage buffer for sort.
+
+    ```c++
+    // request storage buffer request
+    VrdxSorterStorageRequirements requirements;
+    // for key-only
+    vrdxGetSorterStorageRequirements(sorter, elementCount, &requirements);
+    // for key-value
+    vrdxGetSorterKeyValueStorageRequirements(sorter, elementCount, &requirements);
+
+    // create or reuse buffer
+    VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bufferInfo.size = requirements.size;
+    bufferInfo.usage = requirements.usage;
+    // ...
     ```
 
 1. Record sort commands.
@@ -114,13 +112,27 @@ $ ./build/bench  # Linux
     VkQueryPool queryPool;  // VK_NULL_HANDLE, or a valid timestamp query pool with size at least 8.
 
     // sort keys
-    vrdxCmdSort(commandBuffer, sorter, elementCount, keysBuffer, 0, queryPool, 0);
+    vrdxCmdSort(commandBuffer, sorter, elementCount,
+                keysBuffer, 0,
+                storageBuffer, 0,
+                queryPool, 0);
 
     // sort keys with values
-    vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
+    vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount,
+                        keysBuffer, 0,
+                        valuesBuffer, 0,
+                        storageBuffer, 0,
+                        queryPool, 0);
 
     // indirectBuffer contains elementCount, a single uint entry in GPU buffer.
-    vrdxCmdSortKeyValueIndirect(commandBuffer, sorter, indirectBuffer, 0, keysBuffer, 0, valuesBuffer, 0, queryPool, 0);
+    // maxElementCount is required for storage buffer offsets.
+    // element count in the indirect buffer must not be greater than maxElementCount. Otherwise, undefined behavior.
+    vrdxCmdSortKeyValueIndirect(commandBuffer, sorter, maxElementCount,
+                                indirectBuffer, 0,
+                                keysBuffer, 0,
+                                valuesBuffer, 0,
+                                storageBuffer, 0,
+                                queryPool, 0);
     ```
 
 

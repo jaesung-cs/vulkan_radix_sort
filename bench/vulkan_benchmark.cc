@@ -4,6 +4,7 @@
 
 namespace {
 
+constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 25;
 constexpr auto timestamp_count = 15;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -169,25 +170,19 @@ VulkanBenchmark::VulkanBenchmark() {
   vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
 
   // sorter
-  VrdxSorterLayoutCreateInfo sorter_layout_info = {};
-  sorter_layout_info.physicalDevice = physical_device_;
-  sorter_layout_info.device = device_;
-  vrdxCreateSorterLayout(&sorter_layout_info, &sorter_layout_);
-
   VrdxSorterCreateInfo sorter_info = {};
-  sorter_info.allocator = allocator_;
-  sorter_info.sorterLayout = sorter_layout_;
-  sorter_info.maxElementCount = MAX_ELEMENT_COUNT;
+  sorter_info.physicalDevice = physical_device_;
+  sorter_info.device = device_;
   vrdxCreateSorter(&sorter_info, &sorter_);
 
   // preallocate buffers
   {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
     vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
@@ -195,9 +190,9 @@ VulkanBenchmark::VulkanBenchmark() {
   }
   {
     VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     buffer_info.usage =
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
     VmaAllocationCreateInfo allocation_create_info = {};
     allocation_create_info.flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
@@ -208,16 +203,29 @@ VulkanBenchmark::VulkanBenchmark() {
                     &staging_.buffer, &staging_.allocation, &allocation_info);
     staging_.map = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
   }
+  {
+    VrdxSorterStorageRequirements requirements;
+    vrdxGetSorterKeyValueStorageRequirements(sorter_, MAX_ELEMENT_COUNT,
+                                             &requirements);
+
+    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = requirements.size;
+    buffer_info.usage = requirements.usage;
+    VmaAllocationCreateInfo allocation_create_info = {};
+    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                    &storage_.buffer, &storage_.allocation, NULL);
+  }
 }
 
 VulkanBenchmark::~VulkanBenchmark() {
   vkDeviceWaitIdle(device_);
 
   vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
+  vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
   vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
   vrdxDestroySorter(sorter_);
-  vrdxDestroySorterLayout(sorter_layout_);
   vkDestroyQueryPool(device_, query_pool_, NULL);
   vkDestroyFence(device_, fence_, NULL);
   vkDestroyCommandPool(device_, command_pool_, NULL);
@@ -260,7 +268,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
   vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-              query_pool_, 0);
+              storage_.buffer, 0, query_pool_, 0);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
@@ -329,10 +337,10 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, keys_.buffer,
-                              2 * element_count * sizeof(uint32_t),
-                              keys_.buffer, 0, keys_.buffer,
-                              element_count * sizeof(uint32_t), query_pool_, 0);
+  vrdxCmdSortKeyValueIndirect(
+      command_buffer_, sorter_, element_count, keys_.buffer,
+      2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
+      element_count * sizeof(uint32_t), storage_.buffer, 0, query_pool_, 0);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
