@@ -4,7 +4,6 @@
 
 namespace {
 
-constexpr uint32_t MAX_ELEMENT_COUNT = 1 << 25;
 constexpr auto timestamp_count = 15;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -185,56 +184,17 @@ VulkanBenchmark::VulkanBenchmark() {
   sorter_info.physicalDevice = physical_device_;
   sorter_info.device = device_;
   vrdxCreateSorter(&sorter_info, &sorter_);
-
-  // preallocate buffers
-  {
-    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
-    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-    VmaAllocationCreateInfo allocation_create_info = {};
-    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
-                    &keys_.buffer, &keys_.allocation, NULL);
-  }
-  {
-    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = (2 * MAX_ELEMENT_COUNT + 1) * sizeof(uint32_t);
-    buffer_info.usage =
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    VmaAllocationCreateInfo allocation_create_info = {};
-    allocation_create_info.flags =
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-        VMA_ALLOCATION_CREATE_MAPPED_BIT;
-    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    VmaAllocationInfo allocation_info;
-    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
-                    &staging_.buffer, &staging_.allocation, &allocation_info);
-    staging_.map = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
-  }
-  {
-    VrdxSorterStorageRequirements requirements;
-    vrdxGetSorterKeyValueStorageRequirements(sorter_, MAX_ELEMENT_COUNT,
-                                             &requirements);
-
-    VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = requirements.size;
-    buffer_info.usage = requirements.usage;
-    VmaAllocationCreateInfo allocation_create_info = {};
-    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
-    vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
-                    &storage_.buffer, &storage_.allocation, NULL);
-  }
 }
 
 VulkanBenchmark::~VulkanBenchmark() {
   vkDeviceWaitIdle(device_);
 
-  vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
-  vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
-  vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
+  if (keys_.buffer)
+    vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
+  if (storage_.buffer)
+    vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
+  if (staging_.buffer)
+    vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
   vrdxDestroySorter(sorter_);
   vkDestroyQueryPool(device_, query_pool_, NULL);
@@ -246,9 +206,53 @@ VulkanBenchmark::~VulkanBenchmark() {
   vkDestroyInstance(instance_, NULL);
 }
 
+void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size,
+                                 VkBufferUsageFlags usage, bool mapped) {
+  if ((buffer->usage & usage) == usage && buffer->size >= size &&
+      (mapped && buffer->map || !mapped && buffer->map == nullptr))
+    return;
+
+  if (buffer->allocation)
+    vmaDestroyBuffer(allocator_, buffer->buffer, buffer->allocation);
+
+  VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  buffer_info.size = size;
+  buffer_info.usage = usage;
+  VmaAllocationCreateInfo allocation_create_info = {};
+  if (mapped) {
+    allocation_create_info.flags =
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+        VMA_ALLOCATION_CREATE_MAPPED_BIT;
+  }
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+
+  VmaAllocationInfo allocation_info;
+  vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info,
+                  &buffer->buffer, &buffer->allocation, &allocation_info);
+
+  buffer->usage = usage;
+  buffer->size = size;
+  if (mapped)
+    buffer->map = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
+}
+
 VulkanBenchmark::Results VulkanBenchmark::Sort(
     const std::vector<uint32_t>& keys) {
   auto element_count = keys.size();
+
+  Reallocate(
+      &staging_, element_count * sizeof(uint32_t),
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      true);
+  Reallocate(&keys_, element_count * sizeof(uint32_t),
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+
+  VrdxSorterStorageRequirements requirements;
+  vrdxGetSorterStorageRequirements(sorter_, element_count, &requirements);
+  Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
 
@@ -315,6 +319,21 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
 VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
   auto element_count = keys.size();
+
+  Reallocate(
+      &staging_, (2 * element_count + 1) * sizeof(uint32_t),
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      true);
+  Reallocate(&keys_, (2 * element_count + 1) * sizeof(uint32_t),
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+
+  VrdxSorterStorageRequirements requirements;
+  vrdxGetSorterKeyValueStorageRequirements(sorter_, element_count,
+                                           &requirements);
+  Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
   std::memcpy(staging_.map + element_count * sizeof(uint32_t), values.data(),
