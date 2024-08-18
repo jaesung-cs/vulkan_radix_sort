@@ -64,9 +64,16 @@ VulkanBenchmark::VulkanBenchmark() {
 
   std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
   std::vector<const char*> instance_extensions = {
-      VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+      VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+#ifdef __APPLE__
+      VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+#endif
+  };
 
   VkInstanceCreateInfo instance_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+#ifdef __APPLE__
+  instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
   instance_info.pNext = &messenger_info;
   instance_info.pApplicationInfo = &application_info;
   instance_info.enabledLayerCount = layers.size();
@@ -122,7 +129,11 @@ VulkanBenchmark::VulkanBenchmark() {
   queue_infos[0].queueCount = queue_priorities.size();
   queue_infos[0].pQueuePriorities = queue_priorities.data();
 
-  std::vector<const char*> device_extensions = {};
+  std::vector<const char*> device_extensions = {
+#ifdef __APPLE__
+      "VK_KHR_portability_subset",
+#endif
+  };
 
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.pNext = &features;
