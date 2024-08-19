@@ -238,7 +238,7 @@ void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size,
 
 VulkanBenchmark::Results VulkanBenchmark::Sort(
     const std::vector<uint32_t>& keys) {
-  auto element_count = keys.size();
+  uint32_t element_count = keys.size();
 
   Reallocate(
       &staging_, element_count * sizeof(uint32_t),
@@ -318,7 +318,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
 
 VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
-  auto element_count = keys.size();
+  uint32_t element_count = keys.size();
 
   Reallocate(
       &staging_, (2 * element_count + 1) * sizeof(uint32_t),
