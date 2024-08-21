@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(vk_radix_sort LANGUAGES C CXX)
+project(vk_radix_sort LANGUAGES C CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -84,7 +84,7 @@ if (PROJECT_IS_TOP_LEVEL)
   add_executable(bench ${BENCH_SOURCES})
 
   if (CMAKE_CUDA_COMPILER)
-    add_definitions(bench -DCUDA)
+    target_compile_definitions(bench PUBLIC BENCH_CUDA)
   endif()
 
   # if VMA is already added from parent project, skip

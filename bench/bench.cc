@@ -18,52 +18,57 @@ int main(int argc, char** argv) {
   int size = std::stoi(argv[1]);
   std::string type = argv[2];
 
-  auto benchmark = BenchmarkFactory::Create(type);
-  // TODO: provide seed
-  DataGenerator data_generator;
+  try {
+    auto benchmark = BenchmarkFactory::Create(type);
+    // TODO: provide seed
+    DataGenerator data_generator;
 
-  {
-    std::cout << "================ sort ================" << std::endl;
-    auto data = data_generator.Generate(size);
-
-    auto result0 = benchmark->Sort(data.keys);
     {
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: "
-                << static_cast<double>(result0.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
-    }
-  }
-
-  {
-    std::cout << "================ sort key value ================"
-              << std::endl;
-    auto data = data_generator.Generate(size);
-    auto result0 = benchmark->SortKeyValue(data.keys, data.values);
-    {
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: "
-                << static_cast<double>(result0.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
-    }
-  }
-
-  {
-    std::cout << "================ sort key value speed ================"
-              << std::endl;
-
-    for (int i = 0; i < 100; ++i) {
+      std::cout << "================ sort ================" << std::endl;
       auto data = data_generator.Generate(size);
-      auto result = benchmark->SortKeyValue(data.keys, data.values);
 
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result.total_time) / 1e9);
-      std::cout << "[" << i << "] total time: "
-                << static_cast<double>(result.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
+      auto result0 = benchmark->Sort(data.keys);
+      {
+        double perf = (static_cast<double>(size) / 1e9) /
+                      (static_cast<double>(result0.total_time) / 1e9);
+        std::cout << "total time: "
+                  << static_cast<double>(result0.total_time) / 1e6 << "ms ("
+                  << perf << " GItems/s)" << std::endl;
+      }
     }
+
+    {
+      std::cout << "================ sort key value ================"
+                << std::endl;
+      auto data = data_generator.Generate(size);
+      auto result0 = benchmark->SortKeyValue(data.keys, data.values);
+      {
+        double perf = (static_cast<double>(size) / 1e9) /
+                      (static_cast<double>(result0.total_time) / 1e9);
+        std::cout << "total time: "
+                  << static_cast<double>(result0.total_time) / 1e6 << "ms ("
+                  << perf << " GItems/s)" << std::endl;
+      }
+    }
+
+    {
+      std::cout << "================ sort key value speed ================"
+                << std::endl;
+
+      for (int i = 0; i < 100; ++i) {
+        auto data = data_generator.Generate(size);
+        auto result = benchmark->SortKeyValue(data.keys, data.values);
+
+        double perf = (static_cast<double>(size) / 1e9) /
+                      (static_cast<double>(result.total_time) / 1e9);
+        std::cout << "[" << i << "] total time: "
+                  << static_cast<double>(result.total_time) / 1e6 << "ms ("
+                  << perf << " GItems/s)" << std::endl;
+      }
+    }
+  } catch (const std::exception& e) {
+    std::cerr << e.what() << std::endl;
+    return 1;
   }
 
   return 0;
