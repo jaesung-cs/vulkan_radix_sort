@@ -178,25 +178,14 @@ VulkanBenchmark::VulkanBenchmark() {
   query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
   query_pool_info.queryCount = timestamp_count;
   vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
-
-  // sorter
-  VrdxSorterCreateInfo sorter_info = {};
-  sorter_info.physicalDevice = physical_device_;
-  sorter_info.device = device_;
-  vrdxCreateSorter(&sorter_info, &sorter_);
 }
 
 VulkanBenchmark::~VulkanBenchmark() {
-  vkDeviceWaitIdle(device_);
-
   if (keys_.buffer)
     vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
-  if (storage_.buffer)
-    vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
   if (staging_.buffer)
     vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
-  vrdxDestroySorter(sorter_);
   vkDestroyQueryPool(device_, query_pool_, NULL);
   vkDestroyFence(device_, fence_, NULL);
   vkDestroyCommandPool(device_, command_pool_, NULL);
@@ -236,8 +225,7 @@ void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size,
     buffer->map = reinterpret_cast<uint8_t*>(allocation_info.pMappedData);
 }
 
-VulkanBenchmark::Results VulkanBenchmark::Sort(
-    const std::vector<uint32_t>& keys) {
+BenchmarkResults VulkanBenchmark::Sort(const std::vector<uint32_t>& keys) {
   uint32_t element_count = keys.size();
 
   Reallocate(
@@ -249,10 +237,6 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                  VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-
-  VrdxSorterStorageRequirements requirements;
-  vrdxGetSorterStorageRequirements(sorter_, element_count, &requirements);
-  Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
 
@@ -282,8 +266,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0,
-              storage_.buffer, 0, query_pool_, 0);
+  SortGpu(command_buffer_, element_count);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
@@ -308,7 +291,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 
-  Results result;
+  BenchmarkResults result;
   result.keys.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map,
               element_count * sizeof(uint32_t));
@@ -316,7 +299,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(
   return result;
 }
 
-VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
+BenchmarkResults VulkanBenchmark::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
   uint32_t element_count = keys.size();
 
@@ -329,11 +312,6 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                  VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-
-  VrdxSorterStorageRequirements requirements;
-  vrdxGetSorterKeyValueStorageRequirements(sorter_, element_count,
-                                           &requirements);
-  Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
   std::memcpy(staging_.map + element_count * sizeof(uint32_t), values.data(),
@@ -367,10 +345,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSortKeyValueIndirect(
-      command_buffer_, sorter_, element_count, keys_.buffer,
-      2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
-      element_count * sizeof(uint32_t), storage_.buffer, 0, query_pool_, 0);
+  SortKeyValueGpu(command_buffer_, element_count);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
@@ -395,7 +370,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(
                         timestamps.size() * sizeof(uint64_t), timestamps.data(),
                         sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 
-  Results result;
+  BenchmarkResults result;
   result.keys.resize(element_count);
   result.values.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map,

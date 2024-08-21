@@ -7,10 +7,8 @@
 
 #include "vk_mem_alloc.h"
 
-#include <vk_radix_sort.h>
-
 class VulkanBenchmark : public BenchmarkBase {
- private:
+ protected:
   struct Buffer {
     VkBufferUsageFlags usage = 0;
     VkDeviceSize size = 0;
@@ -23,15 +21,18 @@ class VulkanBenchmark : public BenchmarkBase {
   VulkanBenchmark();
   ~VulkanBenchmark() override;
 
-  Results Sort(const std::vector<uint32_t>& keys) override;
-  Results SortKeyValue(const std::vector<uint32_t>& keys,
-                       const std::vector<uint32_t>& values) override;
+  BenchmarkResults Sort(const std::vector<uint32_t>& keys) override;
+  BenchmarkResults SortKeyValue(const std::vector<uint32_t>& keys,
+                                const std::vector<uint32_t>& values) override;
 
  protected:
   void Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage,
                   bool mapped = false);
 
- private:
+  virtual void SortGpu(VkCommandBuffer cb, size_t element_count) = 0;
+  virtual void SortKeyValueGpu(VkCommandBuffer cb, size_t element_count) = 0;
+
+ protected:
   VkInstance instance_ = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
   VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
@@ -44,9 +45,7 @@ class VulkanBenchmark : public BenchmarkBase {
   VkFence fence_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
-  VrdxSorter sorter_ = VK_NULL_HANDLE;
   Buffer keys_;
-  Buffer storage_;
   Buffer staging_;
 };
 

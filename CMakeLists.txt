@@ -65,6 +65,7 @@ if (PROJECT_IS_TOP_LEVEL)
     bench/cpu_benchmark.cc
     bench/data_generator.cc
     bench/vma_impl.cc
+    bench/vrdx_benchmark.cc
     bench/vulkan_benchmark.cc
   )
 

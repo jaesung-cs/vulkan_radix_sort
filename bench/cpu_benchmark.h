@@ -8,9 +8,9 @@ class CpuBenchmark : public BenchmarkBase {
   CpuBenchmark();
   ~CpuBenchmark() override;
 
-  Results Sort(const std::vector<uint32_t>& keys) override;
-  Results SortKeyValue(const std::vector<uint32_t>& keys,
-                       const std::vector<uint32_t>& values) override;
+  BenchmarkResults Sort(const std::vector<uint32_t>& keys) override;
+  BenchmarkResults SortKeyValue(const std::vector<uint32_t>& keys,
+                                const std::vector<uint32_t>& values) override;
 
  private:
 };

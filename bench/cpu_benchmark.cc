@@ -6,14 +6,14 @@ CpuBenchmark::CpuBenchmark() = default;
 
 CpuBenchmark::~CpuBenchmark() = default;
 
-CpuBenchmark::Results CpuBenchmark::Sort(const std::vector<uint32_t>& keys) {
-  Results result;
+BenchmarkResults CpuBenchmark::Sort(const std::vector<uint32_t>& keys) {
+  BenchmarkResults result;
   result.keys = keys;
   std::sort(result.keys.begin(), result.keys.end());
   return result;
 }
 
-CpuBenchmark::Results CpuBenchmark::SortKeyValue(
+BenchmarkResults CpuBenchmark::SortKeyValue(
     const std::vector<uint32_t>& keys, const std::vector<uint32_t>& values) {
   std::vector<uint32_t> indices;
   auto N = keys.size();
@@ -24,7 +24,7 @@ CpuBenchmark::Results CpuBenchmark::SortKeyValue(
   std::stable_sort(indices.begin(), indices.end(),
                    [&](int lhs, int rhs) { return keys[lhs] < keys[rhs]; });
 
-  Results result;
+  BenchmarkResults result;
   result.keys.reserve(N);
   result.values.reserve(N);
   for (int i = 0; i < N; ++i) {

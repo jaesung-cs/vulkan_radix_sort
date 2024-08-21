@@ -26,10 +26,10 @@ CudaBenchmark::~CudaBenchmark() {
   cudaFree(out_values_ptr_);
 }
 
-CudaBenchmark::Results CudaBenchmark::Sort(const std::vector<uint32_t> &keys) {
+BenchmarkResults CudaBenchmark::Sort(const std::vector<uint32_t> &keys) {
   auto n = keys.size();
 
-  Results result;
+  BenchmarkResults result;
   result.keys.resize(n);
 
   // CPU to GPU
@@ -68,11 +68,11 @@ CudaBenchmark::Results CudaBenchmark::Sort(const std::vector<uint32_t> &keys) {
   return result;
 }
 
-CudaBenchmark::Results CudaBenchmark::SortKeyValue(
+BenchmarkResults CudaBenchmark::SortKeyValue(
     const std::vector<uint32_t> &keys, const std::vector<uint32_t> &values) {
   auto n = keys.size();
 
-  Results result;
+  BenchmarkResults result;
   result.keys.resize(n);
   result.values.resize(n);
 

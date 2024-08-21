@@ -13,9 +13,9 @@ class CudaBenchmark : public BenchmarkBase {
   CudaBenchmark();
   ~CudaBenchmark() override;
 
-  Results Sort(const std::vector<uint32_t>& keys) override;
-  Results SortKeyValue(const std::vector<uint32_t>& keys,
-                       const std::vector<uint32_t>& values) override;
+  BenchmarkResults Sort(const std::vector<uint32_t>& keys) override;
+  BenchmarkResults SortKeyValue(const std::vector<uint32_t>& keys,
+                                const std::vector<uint32_t>& values) override;
 
  private:
   cudaStream_t stream_ = 0;
