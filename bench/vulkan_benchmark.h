@@ -10,6 +10,15 @@
 #include <vk_radix_sort.h>
 
 class VulkanBenchmark : public BenchmarkBase {
+ private:
+  struct Buffer {
+    VkBufferUsageFlags usage = 0;
+    VkDeviceSize size = 0;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    uint8_t* map = nullptr;
+  };
+
  public:
   VulkanBenchmark();
   ~VulkanBenchmark() override;
@@ -17,6 +26,10 @@ class VulkanBenchmark : public BenchmarkBase {
   Results Sort(const std::vector<uint32_t>& keys) override;
   Results SortKeyValue(const std::vector<uint32_t>& keys,
                        const std::vector<uint32_t>& values) override;
+
+ protected:
+  void Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage,
+                  bool mapped = false);
 
  private:
   VkInstance instance_ = VK_NULL_HANDLE;
@@ -29,14 +42,9 @@ class VulkanBenchmark : public BenchmarkBase {
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
-  VrdxSorter sorter_ = VK_NULL_HANDLE;
   VkQueryPool query_pool_ = VK_NULL_HANDLE;
 
-  struct Buffer {
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VmaAllocation allocation = VK_NULL_HANDLE;
-    uint8_t* map = nullptr;
-  };
+  VrdxSorter sorter_ = VK_NULL_HANDLE;
   Buffer keys_;
   Buffer storage_;
   Buffer staging_;

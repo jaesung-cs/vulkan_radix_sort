@@ -1,200 +1,155 @@
 #include <iostream>
 #include <iomanip>
+#include <string>
 
 #include "data_generator.h"
-#include "cuda_benchmark.h"
-#include "vulkan_benchmark.h"
+#include "benchmark_base.h"
+#include "benchmark_factory.h"
 
-int main() {
+int main(int argc, char** argv) {
   std::cout << "vk_radix_sort benchmark" << std::endl;
 
+  if (argc != 3) {
+    std::cout << "Usage: bench <N> <type>" << std::endl;
+    return 1;
+  }
+
   // target: 15 GItems/s for key, 11 GItems/s for kv sort, 4.19e6 items (A100)
-  int size = 33554432;
+  int size = std::stoi(argv[1]);
+  std::string type = argv[2];
 
-  CudaBenchmark cuda_benchmark;
-  VulkanBenchmark vulkan_benchmark;
+  try {
+    auto benchmark = BenchmarkFactory::Create(type);
+    auto cpu_benchmark = BenchmarkFactory::Create("cpu");
+    // TODO: provide seed
+    DataGenerator data_generator;
 
-  {
-    std::cout << "================ sort ================" << std::endl;
-    auto data = GenerateUniformRandomData(size);
-
-    std::cout << "cuda sort" << std::endl;
-    auto result0 = cuda_benchmark.Sort(data.keys);
     {
+      std::cout << "================ sort ================" << std::endl;
+      auto data = data_generator.Generate(size);
+
+      auto result0 = benchmark->Sort(data.keys);
       double perf = (static_cast<double>(size) / 1e9) /
                     (static_cast<double>(result0.total_time) / 1e9);
       std::cout << "total time: "
                 << static_cast<double>(result0.total_time) / 1e6 << "ms ("
                 << perf << " GItems/s)" << std::endl;
-    }
 
-    std::cout << "vulkan sort" << std::endl;
-    auto result1 = vulkan_benchmark.Sort(data.keys);
-    {
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result1.total_time) / 1e9);
+      auto result1 = cpu_benchmark->Sort(data.keys);
+      for (int i = 0; i < data.keys.size(); ++i) {
+        if (result0.keys[i] != result1.keys[i]) {
+          std::cout << "wrong key at index " << i << std::endl;
 
-      std::cout << "total time: "
-                << static_cast<double>(result1.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
-    }
-
-    bool diff = false;
-    int diff_location = -1;
-    for (int j = 0; j < result0.keys.size(); ++j) {
-      if (result0.keys[j] != result1.keys[j]) {
-        diff = true;
-        if (diff_location == -1) {
-          diff_location = j;
+          int i0 = std::max(i - 5, 0);
+          int i1 = std::min<int>(i + 6, data.keys.size());
+          std::cout << "keys   (" << std::setw(6) << type << "): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << data.keys[j];
+          }
+          std::cout << std::endl;
+          std::cout << "keys   (answer): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result1.keys[j];
+          }
+          std::cout << std::endl;
+          break;
         }
       }
     }
 
-    if (diff) {
-      std::cout << std::endl;
-      std::cout << "wrong" << std::endl;
-      std::cout << std::endl;
-      std::cout << "first location " << diff_location << std::endl;
-      std::cout << "pass 3:" << std::endl;
-      std::cout << std::hex;
-      for (int j = diff_location;
-           j < result0.keys.size() && j < diff_location + 16; ++j)
-        std::cout << std::setfill('0') << std::setw(8) << result0.keys[j]
-                  << " ";
-      std::cout << std::endl;
-      for (int j = diff_location;
-           j < result1.keys.size() && j < diff_location + 16; ++j)
-        std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
-                  << " ";
-      std::cout << std::dec << std::endl;
-
-      std::cout << "pass 3:" << std::endl;
-      std::cout << std::hex;
-      for (int j = std::max(size - 16, 0); j < size; ++j)
-        std::cout << std::setfill('0') << std::setw(8) << result0.keys[j]
-                  << " ";
-      std::cout << std::endl;
-      for (int j = std::max(size - 16, 0); j < size; ++j)
-        std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
-                  << " ";
-      std::cout << std::dec << std::endl;
-    } else {
-      std::cout << std::endl;
-      std::cout << "ok" << std::endl;
-      std::cout << std::endl;
-    }
-  }
-
-  {
-    std::cout << "================ sort key value ================"
-              << std::endl;
-    auto data = GenerateUniformRandomData(size);
-    std::cout << "cuda sort" << std::endl;
-    auto result0 = cuda_benchmark.SortKeyValue(data.keys, data.values);
     {
+      std::cout << "================ sort key value ================"
+                << std::endl;
+      auto data = data_generator.Generate(size);
+      auto result0 = benchmark->SortKeyValue(data.keys, data.values);
+
       double perf = (static_cast<double>(size) / 1e9) /
                     (static_cast<double>(result0.total_time) / 1e9);
       std::cout << "total time: "
                 << static_cast<double>(result0.total_time) / 1e6 << "ms ("
                 << perf << " GItems/s)" << std::endl;
-    }
 
-    std::cout << "vulkan sort" << std::endl;
-    auto result1 = vulkan_benchmark.SortKeyValue(data.keys, data.values);
-    {
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result1.total_time) / 1e9);
+      auto result1 = cpu_benchmark->SortKeyValue(data.keys, data.values);
+      for (int i = 0; i < data.keys.size(); ++i) {
+        if (result0.keys[i] != result1.keys[i]) {
+          std::cout << "wrong key at index " << i << std::endl;
 
-      std::cout << "total time: "
-                << static_cast<double>(result1.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
-    }
-
-    bool diff_keys = false;
-    bool diff_values = false;
-    int diff_value_location = 0;
-    int diff_value_count = 0;
-    for (int j = 0; j < result0.keys.size(); ++j) {
-      if (result0.keys[j] != result1.keys[j]) {
-        diff_keys = true;
-      }
-      if (result0.values[j] != result1.values[j]) {
-        if (!diff_values) {
-          diff_value_location = j;
+          int i0 = std::max(i - 5, 0);
+          int i1 = std::min<int>(i + 6, data.keys.size());
+          std::cout << "keys   (" << std::setw(6) << type << "): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result0.keys[j];
+          }
+          std::cout << std::endl;
+          std::cout << "keys   (answer): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result1.keys[j];
+          }
+          std::cout << std::endl;
+          std::cout << "values (" << std::setw(6) << type << "): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result0.values[j];
+          }
+          std::cout << std::endl;
+          std::cout << "values (answer): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result1.values[j];
+          }
+          std::cout << std::endl;
+          break;
         }
-        diff_value_count++;
-        diff_values = true;
+      }
+
+      for (int i = 0; i < data.keys.size(); ++i) {
+        if (result0.values[i] != result1.values[i]) {
+          std::cout << "wrong value at index " << i << std::endl;
+
+          int i0 = std::max(i - 5, 0);
+          int i1 = std::min<int>(i + 6, data.keys.size());
+          std::cout << "keys   (" << std::setw(6) << type << "): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result0.keys[j];
+          }
+          std::cout << std::endl;
+          std::cout << "keys   (answer): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result1.keys[j];
+          }
+          std::cout << std::endl;
+          std::cout << "values (" << std::setw(6) << type << "): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result0.values[j];
+          }
+          std::cout << std::endl;
+          std::cout << "values (answer): ";
+          for (int j = i0; j < i1; ++j) {
+            std::cout << std::setw(9) << std::hex << result1.values[j];
+          }
+          std::cout << std::endl;
+          std::cout << std::endl;
+          break;
+        }
       }
     }
 
-    if (diff_keys || diff_values) {
-      std::cout << std::endl;
-      if (diff_keys) {
-        std::cout << "wrong keys" << std::endl;
-        std::cout << std::hex;
-        for (int j = 0; j < result0.keys.size() && j < 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result0.keys[j]
-                    << " ";
-        std::cout << std::endl;
-        for (int j = 0; j < result1.keys.size() && j < 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
-                    << " ";
-        std::cout << std::dec << std::endl;
+    {
+      std::cout << "================ sort key value speed ================"
+                << std::endl;
+
+      for (int i = 0; i < 100; ++i) {
+        auto data = data_generator.Generate(size);
+        auto result = benchmark->SortKeyValue(data.keys, data.values);
+
+        double perf = (static_cast<double>(size) / 1e9) /
+                      (static_cast<double>(result.total_time) / 1e9);
+        std::cout << "[" << i << "] total time: "
+                  << static_cast<double>(result.total_time) / 1e6 << "ms ("
+                  << perf << " GItems/s)" << std::endl;
       }
-      if (diff_values) {
-        std::cout << "wrong values" << std::endl;
-        std::cout << "first location " << diff_value_location << std::endl;
-        std::cout << "count " << diff_value_count << std::endl;
-        std::cout << std::hex;
-        for (int j = diff_value_location;
-             j < size && j < diff_value_location + 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result0.keys[j]
-                    << " ";
-        std::cout << std::endl;
-        for (int j = diff_value_location;
-             j < size && j < diff_value_location + 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result0.values[j]
-                    << " ";
-        std::cout << std::endl;
-        for (int j = diff_value_location;
-             j < size && j < diff_value_location + 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result1.keys[j]
-                    << " ";
-        std::cout << std::endl;
-        for (int j = diff_value_location;
-             j < size && j < diff_value_location + 16; ++j)
-          std::cout << std::setfill('0') << std::setw(8) << result1.values[j]
-                    << " ";
-        std::cout << std::dec << std::endl;
-      }
-      std::cout << std::endl;
-    } else {
-      std::cout << std::endl;
-      std::cout << "ok" << std::endl;
-      std::cout << std::endl;
     }
-  }
-
-  {
-    std::cout << "================ sort key value speed ================"
-              << std::endl;
-
-    for (int i = 0; i < 100; ++i) {
-      auto data = GenerateUniformRandomData(size);
-      auto result0 = cuda_benchmark.SortKeyValue(data.keys, data.values);
-      auto result1 = vulkan_benchmark.SortKeyValue(data.keys, data.values);
-
-      double perf0 = (static_cast<double>(size) / 1e9) /
-                     (static_cast<double>(result0.total_time) / 1e9);
-      double perf1 = (static_cast<double>(size) / 1e9) /
-                     (static_cast<double>(result1.total_time) / 1e9);
-
-      std::cout << "[" << i << "] total time: CUB "
-                << static_cast<double>(result0.total_time) / 1e6 << "ms ("
-                << perf0 << " GItems/s) vs. Vulkan "
-                << static_cast<double>(result1.total_time) / 1e6 << "ms ("
-                << perf1 << " GItems/s)" << std::endl;
-    }
+  } catch (const std::exception& e) {
+    std::cerr << e.what() << std::endl;
+    return 1;
   }
 
   return 0;
