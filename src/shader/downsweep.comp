@@ -54,7 +54,8 @@ shared uint localHistogramSum[RADIX];
 
 // returns 0b00000....11111, where msb is id-1.
 uvec4 GetExclusiveSubgroupMask(uint id) {
-  uint shift = (1 << bitfieldExtract(id, 0, 5)) - 1;  // 1 << (id % 32)
+  // clamp bit-shift right operand between 0..31 to avoid undefined behavior.
+  uint shift = (1 << bitfieldExtract(id, 0, 5)) - 1;  //  (1 << (id % 32)) - 1
   // right shift operation on signed integer copies sign bit, use the trick for masking.
   // (negative)     >> 31 = 111...111
   // (non-negative) >> 31 = 000...000
