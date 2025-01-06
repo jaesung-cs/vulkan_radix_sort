@@ -68,8 +68,8 @@ uint GetBitCount(uvec4 value) {
 }
 
 void main() {
-  uint threadIndex = gl_SubgroupInvocationID;  // 0..31
-  uint subgroupIndex = gl_SubgroupID;  // 0..15
+  uint threadIndex = gl_SubgroupInvocationID;  // 0..31 or 0..63
+  uint subgroupIndex = gl_SubgroupID;  // 0..15 or 0..7
   uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
   uvec4 subgroupMask = GetExclusiveSubgroupMask(threadIndex);
 
