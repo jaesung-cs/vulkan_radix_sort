@@ -14,13 +14,20 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 - `cmake>=3.15`
 
 
-## Build and Test
+## Build
 ```bash
 $ cmake . -B build
 $ cmake --build build --config Release -j
-$ ./build/Release/bench.exe  # Windows
-$ ./build/bench  # Linux
 ```
+
+## Test
+```bash
+$ ./build/Release/bench.exe <N> <type>  # Windows
+$ ./build/bench <N> <type>              # Linux
+$ ./build/bench 10000000 vulkan
+```
+- N = number of elements to sort
+- type = one of cpu,vulkan,cuda
 
 
 ### Test Environment
@@ -30,17 +37,50 @@ $ ./build/bench  # Linux
 ### Benchmark Result
 - Not precisely benchmarked, but the speed is competitive compare to CUB radix sort.
 - 32-bit key-only: my implementation is 10% slower when sorting 33M (2^25) elements.
-- 32-bit Key-value: my implementation is 15-20% faster when sorting 33M (2^25) key-value pairs.
+- 32-bit Key-value: my implementation is 15-25% faster when sorting 33M (2^25) key-value pairs.
 - Note that CUB radix sort is not in-place operation. It may require an additional copy operation, or double storage.
-```
-================ sort key value speed ================
-[0] total time: CUB 4.20352ms (7.98246 GItems/s) vs. Vulkan 3.52461ms (9.52005 GItems/s)
-[1] total time: CUB 4.17075ms (8.04518 GItems/s) vs. Vulkan 3.49389ms (9.60375 GItems/s)
-[2] total time: CUB 4.16768ms (8.05111 GItems/s) vs. Vulkan 3.50896ms (9.5625 GItems/s)
-[3] total time: CUB 4.12774ms (8.129 GItems/s) vs. Vulkan 3.7161ms (9.02948 GItems/s)
-[4] total time: CUB 4.16666ms (8.05308 GItems/s) vs. Vulkan 3.45875ms (9.70131 GItems/s)
-...
-```
+- vulkan
+  ```bash
+  > .\build\Release\bench.exe 33554432 vulkan
+  vk_radix_sort benchmark
+  ================ sort ================
+  total time: 2.67571ms (12.5404 GItems/s)
+  ================ sort key value ================
+  total time: 3.42221ms (9.80491 GItems/s)
+  ================ sort key value speed ================
+  [0] total time: 3.41706ms (9.81969 GItems/s)
+  [1] total time: 3.43142ms (9.77857 GItems/s)
+  [2] total time: 3.42298ms (9.80271 GItems/s)
+  [3] total time: 3.46208ms (9.69199 GItems/s)
+  [4] total time: 3.42426ms (9.79904 GItems/s)
+  [5] total time: 3.43725ms (9.762 GItems/s)
+  [6] total time: 3.42016ms (9.81078 GItems/s)
+  [7] total time: 3.42016ms (9.81078 GItems/s)
+  [8] total time: 3.42099ms (9.80839 GItems/s)
+  [9] total time: 3.41606ms (9.82254 GItems/s)
+  ...
+  ```
+- CUDA Version 12.6 CUB
+  ```bash
+  > .\build\Release\bench.exe 33554432 cuda
+  vk_radix_sort benchmark
+  ================ sort ================
+  total time: 2.5047ms (13.3966 GItems/s)
+  ================ sort key value ================
+  total time: 4.19226ms (8.00391 GItems/s)
+  ================ sort key value speed ================
+  [0] total time: 4.20352ms (7.98246 GItems/s)
+  [1] total time: 4.50355ms (7.45066 GItems/s)
+  [2] total time: 4.21376ms (7.96306 GItems/s)
+  [3] total time: 4.22298ms (7.94568 GItems/s)
+  [4] total time: 4.22208ms (7.94737 GItems/s)
+  [5] total time: 4.2199ms (7.95147 GItems/s)
+  [6] total time: 4.21274ms (7.965 GItems/s)
+  [7] total time: 4.20352ms (7.98246 GItems/s)
+  [8] total time: 4.21376ms (7.96306 GItems/s)
+  [9] total time: 4.21478ms (7.96113 GItems/s)
+  ...
+  ```
 
 ## Use as a Library with CMake
 - Add subdirectory `vulkan_radix_sort`
@@ -143,6 +183,7 @@ $ ./build/bench  # Linux
 - [ ] Compare with VkRadixSort
 - [ ] Compare with Fuchsia radix sort
 - [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.
+- [ ] Support for SubgroupSize=64.
 
 
 ## References
