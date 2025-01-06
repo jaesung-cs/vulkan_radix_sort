@@ -140,7 +140,7 @@ void main() {
   }
   barrier();
   
-  // local histogram reduce 4096
+  // local histogram reduce 4096 or 2048
   for (uint i = index; i < RADIX * gl_NumSubgroups; i += WORKGROUP_SIZE) {
     uint v = localHistogram[i];
     uint sum = subgroupAdd(v);
@@ -152,7 +152,7 @@ void main() {
   }
   barrier();
 
-  // local histogram reduce 128
+  // local histogram reduce 128 or 32
   uint intermediateOffset0 = RADIX * gl_NumSubgroups / gl_SubgroupSize;
   if (index < intermediateOffset0) {
     uint v = localHistogramSum[index];
@@ -165,8 +165,8 @@ void main() {
   }
   barrier();
 
-  // local histogram reduce 4
-  uint intermediateSize1 = RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize;
+  // local histogram reduce 4 or 1
+  uint intermediateSize1 = max(RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize, 1);
   if (index < intermediateSize1) {
     uint v = localHistogramSum[intermediateOffset0 + index];
     uint excl = subgroupExclusiveAdd(v);
