@@ -54,11 +54,17 @@ shared uint localHistogramSum[RADIX];
 
 // returns 0b00000....11111, where msb is id-1.
 uvec4 GetExclusiveSubgroupMask(uint id) {
+  // clamp bit-shift right operand between 0..31 to avoid undefined behavior.
+  uint shift = (1 << bitfieldExtract(id, 0, 5)) - 1;  //  (1 << (id % 32)) - 1
+  // right shift operation on signed integer copies sign bit, use the trick for masking.
+  // (negative)     >> 31 = 111...111
+  // (non-negative) >> 31 = 000...000
+  int x = int(id) >> 5;
   return uvec4(
-    (1 << id) - 1,
-    (1 << (id - 32)) - 1,
-    (1 << (id - 64)) - 1,
-    (1 << (id - 96)) - 1
+    (shift & ((-1-x) >> 31)) | ((0-x) >> 31),
+    (shift & (( 0-x) >> 31)) | ((1-x) >> 31),
+    (shift & (( 1-x) >> 31)) | ((2-x) >> 31),
+    (shift & (( 2-x) >> 31)) | ((3-x) >> 31)
   );
 }
 
@@ -68,8 +74,8 @@ uint GetBitCount(uvec4 value) {
 }
 
 void main() {
-  uint threadIndex = gl_SubgroupInvocationID;  // 0..31
-  uint subgroupIndex = gl_SubgroupID;  // 0..15
+  uint threadIndex = gl_SubgroupInvocationID;  // 0..31 or 0..63
+  uint subgroupIndex = gl_SubgroupID;  // 0..15 or 0..7
   uint index = subgroupIndex * gl_SubgroupSize + threadIndex;
   uvec4 subgroupMask = GetExclusiveSubgroupMask(threadIndex);
 
@@ -135,7 +141,7 @@ void main() {
   }
   barrier();
   
-  // local histogram reduce 4096
+  // local histogram reduce 4096 or 2048
   for (uint i = index; i < RADIX * gl_NumSubgroups; i += WORKGROUP_SIZE) {
     uint v = localHistogram[i];
     uint sum = subgroupAdd(v);
@@ -147,7 +153,7 @@ void main() {
   }
   barrier();
 
-  // local histogram reduce 128
+  // local histogram reduce 128 or 32
   uint intermediateOffset0 = RADIX * gl_NumSubgroups / gl_SubgroupSize;
   if (index < intermediateOffset0) {
     uint v = localHistogramSum[index];
@@ -160,8 +166,8 @@ void main() {
   }
   barrier();
 
-  // local histogram reduce 4
-  uint intermediateSize1 = RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize;
+  // local histogram reduce 4 or 1
+  uint intermediateSize1 = max(RADIX * gl_NumSubgroups / gl_SubgroupSize / gl_SubgroupSize, 1);
   if (index < intermediateSize1) {
     uint v = localHistogramSum[intermediateOffset0 + index];
     uint excl = subgroupExclusiveAdd(v);

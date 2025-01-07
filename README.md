@@ -183,7 +183,7 @@ $ ./build/bench 10000000 vulkan
 - [ ] Compare with VkRadixSort
 - [ ] Compare with Fuchsia radix sort
 - [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.
-- [ ] Support for SubgroupSize=64.
+- [x] Support for SubgroupSize=64.
 
 
 ## References
