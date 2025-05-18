@@ -35,10 +35,11 @@ $ ./build/bench 10000000 vulkan
 
 
 ### Benchmark Result
-- Not precisely benchmarked, but the speed is competitive compare to CUB radix sort.
+- Not precisely benchmarked, but the speed is competitive compared to CUB **Reduce-then-Scan** radix sort.
+  - I could infer CUB runs from `DeviceRadixSortUpsweepKernel`, `RadixSortScanBinsKernel`, `DeviceRadixSortDownsweepKernel`
+  - There seems a way to enable CUB `Onesweep` in the [CUB benchmark code](https://github.com/NVIDIA/cccl/blob/main/cub/benchmarks/bench/radix_sort/keys.cu), I will study it some time!
 - 32-bit key-only: my implementation is 10% slower when sorting 33M (2^25) elements.
 - 32-bit Key-value: my implementation is 15-25% faster when sorting 33M (2^25) key-value pairs.
-- Note that CUB radix sort is not in-place operation. It may require an additional copy operation, or double storage.
 - vulkan
   ```bash
   > .\build\Release\bench.exe 33554432 vulkan
@@ -60,7 +61,7 @@ $ ./build/bench 10000000 vulkan
   [9] total time: 3.41606ms (9.82254 GItems/s)
   ...
   ```
-- CUDA Version 12.6 CUB
+- CUDA Version 12.6 CUB Reduce-then-Scan
   ```bash
   > .\build\Release\bench.exe 33554432 cuda
   vk_radix_sort benchmark
@@ -179,7 +180,8 @@ $ ./build/bench 10000000 vulkan
 ## TODO
 - [x] Use `VkPhysicalDeviceLimits` to get compute shader-related limits, such as `maxComputeWorkGroupSize` or `maxComputeSharedMemorySize`.
 - [x] Increase allowed `maxElementCount` by allocating buffers properly.
-- [x] Compare with CUB radix sort
+- [x] Compare with CUB Reduce-then-Scan radix sort
+- [ ] Compare with CUB Onesweep radix sort
 - [ ] Compare with VkRadixSort
 - [ ] Compare with Fuchsia radix sort
 - [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.
