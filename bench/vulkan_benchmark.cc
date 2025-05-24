@@ -4,6 +4,8 @@
 
 namespace {
 
+uint32_t Align(uint32_t a, uint32_t b) { return (a + b - 1) / b * b; }
+
 constexpr auto timestamp_count = 15;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -102,14 +104,6 @@ VulkanBenchmark::VulkanBenchmark() {
     }
   }
 
-  // features
-  VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
-
-  VkPhysicalDeviceFeatures2 features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-  features.pNext = &buffer_device_address_features;
-  vkGetPhysicalDeviceFeatures2(physical_device_, &features);
-
   // queues
   std::vector<float> queue_priorities = {
       1.f,
@@ -121,13 +115,13 @@ VulkanBenchmark::VulkanBenchmark() {
   queue_infos[0].pQueuePriorities = queue_priorities.data();
 
   std::vector<const char*> device_extensions = {
+      VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 #ifdef __APPLE__
       "VK_KHR_portability_subset",
 #endif
   };
 
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-  device_info.pNext = &features;
   device_info.queueCreateInfoCount = queue_infos.size();
   device_info.pQueueCreateInfos = queue_infos.data();
   device_info.enabledExtensionCount = device_extensions.size();
@@ -138,7 +132,6 @@ VulkanBenchmark::VulkanBenchmark() {
 
   // vma
   VmaAllocatorCreateInfo allocator_info = {};
-  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   allocator_info.physicalDevice = physical_device_;
   allocator_info.device = device_;
   allocator_info.instance = instance_;
@@ -222,12 +215,13 @@ void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsag
 
 VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys) {
   uint32_t element_count = keys.size();
+  uint32_t inout_size = Align(element_count * sizeof(uint32_t), 16);
 
-  Reallocate(&staging_, element_count * sizeof(uint32_t),
+  Reallocate(&staging_, inout_size,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-  Reallocate(&keys_, element_count * sizeof(uint32_t),
+  Reallocate(&keys_, inout_size,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VrdxSorterStorageRequirements requirements;
   vrdxGetSorterStorageRequirements(sorter_, element_count, &requirements);
@@ -297,22 +291,21 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
 VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_t>& keys,
                                                        const std::vector<uint32_t>& values) {
   uint32_t element_count = keys.size();
+  uint32_t inout_size = Align(element_count * sizeof(uint32_t), 16);
 
-  Reallocate(&staging_, (2 * element_count + 1) * sizeof(uint32_t),
+  Reallocate(&staging_, 2 * inout_size + 16,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-  Reallocate(&keys_, (2 * element_count + 1) * sizeof(uint32_t),
+  Reallocate(&keys_, 2 * inout_size + 16,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VrdxSorterStorageRequirements requirements;
   vrdxGetSorterKeyValueStorageRequirements(sorter_, element_count, &requirements);
   Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
-  std::memcpy(staging_.map + element_count * sizeof(uint32_t), values.data(),
-              element_count * sizeof(uint32_t));
-  std::memcpy(staging_.map + 2 * element_count * sizeof(uint32_t), &element_count,
-              sizeof(uint32_t));
+  std::memcpy(staging_.map + inout_size, values.data(), element_count * sizeof(uint32_t));
+  std::memcpy(staging_.map + 2 * inout_size, &element_count, sizeof(uint32_t));
 
   VkCommandBufferBeginInfo command_buffer_begin_info = {
       VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -325,7 +318,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   VkBufferCopy region = {};
   region.srcOffset = 0;
   region.dstOffset = 0;
-  region.size = (2 * element_count + 1) * sizeof(uint32_t);
+  region.size = 2 * inout_size + sizeof(uint32_t);
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   vkEndCommandBuffer(command_buffer_);
@@ -340,9 +333,9 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, element_count, keys_.buffer,
-                              2 * element_count * sizeof(uint32_t), keys_.buffer, 0, keys_.buffer,
-                              element_count * sizeof(uint32_t), storage_.buffer, 0, query_pool_, 0);
+  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, element_count, keys_.buffer, 2 * inout_size,
+                              keys_.buffer, 0, keys_.buffer, inout_size, storage_.buffer, 0,
+                              query_pool_, 0);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
@@ -354,7 +347,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
 
   region.srcOffset = 0;
   region.dstOffset = 0;
-  region.size = 2 * element_count * sizeof(uint32_t);
+  region.size = 2 * inout_size;
   vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &region);
 
   vkEndCommandBuffer(command_buffer_);
@@ -371,8 +364,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   result.keys.resize(element_count);
   result.values.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
-  std::memcpy(result.values.data(), staging_.map + element_count * sizeof(uint32_t),
-              element_count * sizeof(uint32_t));
+  std::memcpy(result.values.data(), staging_.map + inout_size, element_count * sizeof(uint32_t));
   result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
   return result;
 }
