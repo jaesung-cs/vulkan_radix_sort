@@ -28,8 +28,7 @@ class VulkanBenchmark : public BenchmarkBase {
                        const std::vector<uint32_t>& values) override;
 
  protected:
-  void Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage,
-                  bool mapped = false);
+  void Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, bool mapped = false);
 
  private:
   VkInstance instance_ = VK_NULL_HANDLE;

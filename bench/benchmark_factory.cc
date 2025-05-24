@@ -9,8 +9,7 @@
 #include "cuda_benchmark.h"
 #endif
 
-std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(
-    const std::string& type) {
+std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(const std::string& type) {
   if (type == "cpu") return std::make_unique<CpuBenchmark>();
   if (type == "vulkan") return std::make_unique<VulkanBenchmark>();
 
