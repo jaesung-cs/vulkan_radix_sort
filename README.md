@@ -6,8 +6,9 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 
 
 ## Requirements
-- `VulkanSDK>=1.1`
+- `VulkanSDK>=1.3.296.0`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
+  - `slangc` executable is included in `VulkanSDK>=1.3.296.0`.
   - Requires several features available in `1.1`.
   - Must support `VK_KHR_push_descriptor`:
     - Run `vulkaninfo` and check if `VK_KHR_push_descriptor` device extension is available.
