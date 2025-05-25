@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "generated/upsweep_comp.h"
+#include "generated/upsweep_slang.h"
 #include "generated/spine_comp.h"
 #include "generated/downsweep_comp.h"
 #include "generated/downsweep_key_value_comp.h"
@@ -94,8 +95,8 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   {
     VkShaderModule shaderModule;
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    shaderModuleInfo.codeSize = sizeof(upsweep_comp);
-    shaderModuleInfo.pCode = upsweep_comp;
+    shaderModuleInfo.codeSize = sizeof(upsweep_slang);
+    shaderModuleInfo.pCode = upsweep_slang;
     vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkComputePipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
