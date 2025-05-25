@@ -1,7 +1,4 @@
-static const uint RADIX = 256;
-static const uint WORKGROUP_SIZE = 512;
-static const uint PARTITION_DIVISION = 8;
-static const uint PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
+import constants;
 
 StructuredBuffer<uint> elementCounts : register(b0, space0);
 RWStructuredBuffer<uint> globalHistogram : register(b1, space0);
