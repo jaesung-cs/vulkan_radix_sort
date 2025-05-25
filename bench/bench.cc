@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
     {
       std::cout << "================ sort key value speed ================" << std::endl;
 
-      for (int i = 0; i < 100; ++i) {
+      for (int i = 0; i < 20; ++i) {
         auto data = data_generator.Generate(size);
         auto result = benchmark->SortKeyValue(data.keys, data.values);
 

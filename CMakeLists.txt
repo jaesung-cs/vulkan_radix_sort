@@ -87,6 +87,8 @@ add_shader(vk_radix_sort src/shader/downsweep.comp downsweep_key_value_comp KEY_
 
 build_shader(vk_radix_sort src/shader/upsweep.slang upsweep_slang)
 build_shader(vk_radix_sort src/shader/spine.slang spine_slang)
+build_shader(vk_radix_sort src/shader/downsweep.slang downsweep_slang)
+build_shader(vk_radix_sort src/shader/downsweep.slang downsweep_key_value_slang KEY_VALUE)
 
 # bench
 if (PROJECT_IS_TOP_LEVEL)

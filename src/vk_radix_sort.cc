@@ -7,7 +7,9 @@
 #include "generated/spine_comp.h"
 #include "generated/spine_slang.h"
 #include "generated/downsweep_comp.h"
+#include "generated/downsweep_slang.h"
 #include "generated/downsweep_key_value_comp.h"
+#include "generated/downsweep_key_value_slang.h"
 
 namespace {
 
@@ -137,12 +139,12 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   {
     VkShaderModule shaderModules[2];
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    shaderModuleInfo.codeSize = sizeof(downsweep_comp);
-    shaderModuleInfo.pCode = downsweep_comp;
+    shaderModuleInfo.codeSize = sizeof(downsweep_slang);
+    shaderModuleInfo.pCode = downsweep_slang;
     vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[0]);
 
-    shaderModuleInfo.codeSize = sizeof(downsweep_key_value_comp);
-    shaderModuleInfo.pCode = downsweep_key_value_comp;
+    shaderModuleInfo.codeSize = sizeof(downsweep_key_value_slang);
+    shaderModuleInfo.pCode = downsweep_key_value_slang;
     vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[1]);
 
     VkComputePipelineCreateInfo pipelineInfos[2];
