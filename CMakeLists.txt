@@ -17,31 +17,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # shaders
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
-# add_shader(TARGET SHADER OUTPUT DEFINE...)
-function(add_shader)
-  list(POP_FRONT ARGV TARGET SHADER OUTPUT)
-  list(TRANSFORM ARGV PREPEND "-D" OUTPUT_VARIABLE DEFINES)
-
-  get_filename_component(SHADER ${SHADER} ABSOLUTE)
-
-  add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
-    COMMAND
-      ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}
-      --target-env spirv1.5
-      -V
-      --vn ${OUTPUT}
-      -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
-      ${DEFINES}
-      ${SHADER}
-    DEPENDS ${SHADER}
-    COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h"
-  )
-
-  add_custom_target(${OUTPUT} DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h)
-  add_dependencies(${TARGET} ${OUTPUT})
-endfunction()
-
 # build_shader(TARGET SHADER OUTPUT DEFINE...)
 function(build_shader)
   list(POP_FRONT ARGV TARGET SHADER OUTPUT)
@@ -79,11 +54,6 @@ target_include_directories(vk_radix_sort
 target_link_libraries(vk_radix_sort
   PUBLIC Vulkan::Vulkan
 )
-
-add_shader(vk_radix_sort src/shader/upsweep.comp upsweep_comp)
-add_shader(vk_radix_sort src/shader/spine.comp spine_comp)
-add_shader(vk_radix_sort src/shader/downsweep.comp downsweep_comp)
-add_shader(vk_radix_sort src/shader/downsweep.comp downsweep_key_value_comp KEY_VALUE)
 
 build_shader(vk_radix_sort src/shader/upsweep.slang upsweep_slang)
 build_shader(vk_radix_sort src/shader/spine.slang spine_slang)
