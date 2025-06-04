@@ -7,14 +7,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(Vulkan REQUIRED)
 
+# find slangc
+string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
+message("slangc executable: ${SLANGC_EXECUTABLE}")
+
 # adds -fPIC, works for linux, when building shared library
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # shaders
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
-# add_shader(TARGET SHADER OUTPUT DEFINE...)
-function(add_shader)
+# build_shader(TARGET SHADER OUTPUT DEFINE...)
+function(build_shader)
   list(POP_FRONT ARGV TARGET SHADER OUTPUT)
   list(TRANSFORM ARGV PREPEND "-D" OUTPUT_VARIABLE DEFINES)
 
@@ -23,10 +27,9 @@ function(add_shader)
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
     COMMAND
-      ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}
-      --target-env spirv1.5
-      -V
-      --vn ${OUTPUT}
+      python ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
+      -target spirv
+      -fvk-b-shift 0 0
       -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
       ${DEFINES}
       ${SHADER}
@@ -52,10 +55,10 @@ target_link_libraries(vk_radix_sort
   PUBLIC Vulkan::Vulkan
 )
 
-add_shader(vk_radix_sort src/shader/upsweep.comp upsweep_comp)
-add_shader(vk_radix_sort src/shader/spine.comp spine_comp)
-add_shader(vk_radix_sort src/shader/downsweep.comp downsweep_comp)
-add_shader(vk_radix_sort src/shader/downsweep.comp downsweep_key_value_comp KEY_VALUE)
+build_shader(vk_radix_sort src/shader/upsweep.slang upsweep_slang)
+build_shader(vk_radix_sort src/shader/spine.slang spine_slang)
+build_shader(vk_radix_sort src/shader/downsweep.slang downsweep_slang)
+build_shader(vk_radix_sort src/shader/downsweep.slang downsweep_key_value_slang KEY_VALUE)
 
 # bench
 if (PROJECT_IS_TOP_LEVEL)
@@ -80,7 +83,6 @@ if (PROJECT_IS_TOP_LEVEL)
     )
   endif()
 
-  message(${BENCH_SOURCES})
   add_executable(bench ${BENCH_SOURCES})
 
   if (CMAKE_CUDA_COMPILER)
