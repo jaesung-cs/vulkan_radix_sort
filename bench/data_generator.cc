@@ -12,8 +12,7 @@ DataGenerator::~DataGenerator() = default;
 SortData DataGenerator::Generate(uint32_t size, uint32_t bits) {
   std::uniform_int_distribution<uint32_t> dist_values;
   std::uniform_int_distribution<uint32_t> dist_keys;
-  if (bits < 32)
-    dist_keys = std::uniform_int_distribution<uint32_t>(0, (1u << bits) - 1);
+  if (bits < 32) dist_keys = std::uniform_int_distribution<uint32_t>(0, (1u << bits) - 1);
 
   SortData data;
   data.keys.reserve(size);

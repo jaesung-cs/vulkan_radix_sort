@@ -29,11 +29,10 @@ int main(int argc, char** argv) {
       auto data = data_generator.Generate(size);
 
       auto result0 = benchmark->Sort(data.keys);
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: "
-                << static_cast<double>(result0.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
+      double perf =
+          (static_cast<double>(size) / 1e9) / (static_cast<double>(result0.total_time) / 1e9);
+      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms (" << perf
+                << " GItems/s)" << std::endl;
 
       auto result1 = cpu_benchmark->Sort(data.keys);
       for (int i = 0; i < data.keys.size(); ++i) {
@@ -58,16 +57,14 @@ int main(int argc, char** argv) {
     }
 
     {
-      std::cout << "================ sort key value ================"
-                << std::endl;
+      std::cout << "================ sort key value ================" << std::endl;
       auto data = data_generator.Generate(size);
       auto result0 = benchmark->SortKeyValue(data.keys, data.values);
 
-      double perf = (static_cast<double>(size) / 1e9) /
-                    (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: "
-                << static_cast<double>(result0.total_time) / 1e6 << "ms ("
-                << perf << " GItems/s)" << std::endl;
+      double perf =
+          (static_cast<double>(size) / 1e9) / (static_cast<double>(result0.total_time) / 1e9);
+      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms (" << perf
+                << " GItems/s)" << std::endl;
 
       auto result1 = cpu_benchmark->SortKeyValue(data.keys, data.values);
       for (int i = 0; i < data.keys.size(); ++i) {
@@ -130,21 +127,26 @@ int main(int argc, char** argv) {
           break;
         }
       }
+
+      /*
+      for (int i = 0; i < data.keys.size(); ++i) {
+        std::cout << std::setw(8) << std::hex << result0.keys[i] << ' '
+                  << std::setw(8) << std::hex << result0.values[i] << std::endl;
+      }
+      */
     }
 
     {
-      std::cout << "================ sort key value speed ================"
-                << std::endl;
+      std::cout << "================ sort key value speed ================" << std::endl;
 
-      for (int i = 0; i < 100; ++i) {
+      for (int i = 0; i < 20; ++i) {
         auto data = data_generator.Generate(size);
         auto result = benchmark->SortKeyValue(data.keys, data.values);
 
-        double perf = (static_cast<double>(size) / 1e9) /
-                      (static_cast<double>(result.total_time) / 1e9);
-        std::cout << "[" << i << "] total time: "
-                  << static_cast<double>(result.total_time) / 1e6 << "ms ("
-                  << perf << " GItems/s)" << std::endl;
+        double perf =
+            (static_cast<double>(size) / 1e9) / (static_cast<double>(result.total_time) / 1e9);
+        std::cout << "[" << i << "] total time: " << static_cast<double>(result.total_time) / 1e6
+                  << "ms (" << perf << " GItems/s)" << std::endl;
       }
     }
   } catch (const std::exception& e) {
