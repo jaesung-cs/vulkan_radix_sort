@@ -5,6 +5,19 @@ Vulkan implementation of radix sort.
 Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.)
 
 
+## Recent Changes
+- `v0.1.0`
+  - Use `VK_KHR_push_descriptor` instead of `VK_KHR_buffer_device_address`
+    - Not to use vulkan-specific language in shader codes.
+    - Buffers no longer need to have `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT` when created.
+    - Buffers offsets must be multiple of `minStorageBufferOffsetAlignment` (`16` in most cases).
+    - Users of previous version need to update codes for device creation accordingly.
+  - Migrate from `GLSL` to `Slang` shader language
+    - For extensibility to other graphics APIs.
+- `v0.0.0`
+  - First publish.
+
+
 ## Requirements
 - `VulkanSDK>=1.3.296.0`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
