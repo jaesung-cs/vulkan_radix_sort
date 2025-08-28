@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(vk_radix_sort LANGUAGES C CXX CUDA)
+project(vk_radix_sort LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -29,7 +29,8 @@ function(build_shader)
     COMMAND
       python ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
       -target spirv
-      -fvk-b-shift 0 0
+      -fvk-t-shift 0 0
+      -fvk-u-shift 0 0
       -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
       ${DEFINES}
       ${SHADER}
@@ -72,22 +73,22 @@ if (PROJECT_IS_TOP_LEVEL)
   )
 
   # if CUDA is available, add CUB benchmark
-  include(CheckLanguage)
-  check_language(CUDA)
-  if (CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
-    set(CMAKE_CUDA_STANDARD 17)
-    set(CMAKE_CUDA_STANDARD_REQUIRED True)
-    list(APPEND BENCH_SOURCES
-      bench/cuda_benchmark.cu
-    )
-  endif()
+  # include(CheckLanguage)
+  # check_language(CUDA)
+  # if (CMAKE_CUDA_COMPILER)
+  #   enable_language(CUDA)
+  #   set(CMAKE_CUDA_STANDARD 17)
+  #   set(CMAKE_CUDA_STANDARD_REQUIRED True)
+  #   list(APPEND BENCH_SOURCES
+  #     bench/cuda_benchmark.cu
+  #   )
+  # endif()
 
   add_executable(bench ${BENCH_SOURCES})
 
-  if (CMAKE_CUDA_COMPILER)
-    target_compile_definitions(bench PUBLIC BENCH_CUDA)
-  endif()
+  # if (CMAKE_CUDA_COMPILER)
+  #   target_compile_definitions(bench PUBLIC BENCH_CUDA)
+  # endif()
 
   # if VMA is already added from parent project, skip
   if (NOT TARGET VulkanMemoryAllocator)

@@ -1,8 +1,8 @@
 import constants;
 
-StructuredBuffer<uint> elementCounts : register(b0, space0);
-RWStructuredBuffer<uint> globalHistogram : register(b1, space0);
-RWStructuredBuffer<uint> partitionHistogram : register(b2, space0);
+StructuredBuffer<uint> elementCounts : register(t0, space0);
+RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
+RWStructuredBuffer<uint> partitionHistogram : register(u2, space0);
 
 groupshared uint reduction;
 groupshared uint intermediate[MAX_SUBGROUP_SIZE];

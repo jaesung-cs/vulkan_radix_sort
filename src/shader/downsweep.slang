@@ -1,13 +1,13 @@
 import constants;
 
-StructuredBuffer<uint> elementCounts : register(b0, space0);
-RWStructuredBuffer<uint> globalHistogram : register(b1, space0);
-RWStructuredBuffer<uint> partitionHistogram : register(b2, space0);
-StructuredBuffer<uint> keysIn : register(b3, space0);
-RWStructuredBuffer<uint> keysOut : register(b4, space0);
+StructuredBuffer<uint> elementCounts : register(t0, space0);
+RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
+RWStructuredBuffer<uint> partitionHistogram : register(u2, space0);
+StructuredBuffer<uint> keysIn : register(t3, space0);
+RWStructuredBuffer<uint> keysOut : register(u4, space0);
 #ifdef KEY_VALUE
-StructuredBuffer<uint> valuesIn : register(b5, space0);
-RWStructuredBuffer<uint> valuesOut : register(b6, space0);
+StructuredBuffer<uint> valuesIn : register(t5, space0);
+RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 #endif  // KEY_VALUE
 
 groupshared uint localHistogram[PARTITION_SIZE];  // (R, S=16)=4096, (P) for alias. take maximum.
