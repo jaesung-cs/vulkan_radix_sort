@@ -55,7 +55,12 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
 
   // device extensions
   PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR =
+#ifdef VRDX_USE_VOLK
+      // Assume VulkanSDK 1.4.
+      vkCmdPushDescriptorSet;
+#else
       (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetKHR");
+#endif
 
   // descriptor layout
   constexpr int bindingCount = 7;
@@ -217,7 +222,7 @@ void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxEle
   VkDeviceSize histogramOffset = elementCountSize;
   VkDeviceSize inoutOffset = histogramOffset + histogramSize;
   // 2x for key value
-  VkDeviceSize storageSize = inoutOffset + 2 * inoutSize;
+  VkDeviceSize storageSize = inoutOffset + Align(inoutSize, 16) + inoutSize;
 
   requirements->size = storageSize;
   requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -272,7 +277,7 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
 
   VkDeviceSize elementCountSize = Align(sizeof(uint32_t), 16);
   VkDeviceSize histogramSize = HistogramSize(elementCount);
-  VkDeviceSize inoutSize = InoutSize(elementCount);
+  VkDeviceSize inoutSize = elementCount * sizeof(uint32_t);
 
   VkDeviceSize elementCountOffset = storageOffset;
   VkDeviceSize histogramOffset = elementCountOffset + elementCountSize;
@@ -324,7 +329,7 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
     if (valuesBuffer) {
       writeCount = 7;
       buffers[5] = {valuesBuffer, valuesOffset, inoutSize};
-      buffers[6] = {storageBuffer, inoutOffset + inoutSize, inoutSize};
+      buffers[6] = {storageBuffer, inoutOffset + Align(inoutSize, 16), inoutSize};
     }
 
     // switch in->out to out->in for pass 1, pass 3
