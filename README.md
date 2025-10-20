@@ -6,6 +6,10 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 
 
 ## Recent Changes
+- `v0.2.0-rc1`
+  - `VulkanSDK>=1.4.328.1` is required.
+  - `Volk` library is temporarily required.
+    - Users not willing to use `volk` should use `v0.1.2`.
 - `v0.1.0`
   - Use `VK_KHR_push_descriptor` instead of `VK_KHR_buffer_device_address`
     - Not to use vulkan-specific language in shader codes.
@@ -19,12 +23,13 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 
 
 ## Requirements
-- `VulkanSDK>=1.3.296.0`
+- `VulkanSDK>=1.4.328.1`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
   - `slangc` executable is included in `VulkanSDK>=1.3.296.0`.
-  - Requires several features available in `1.1`.
-  - Must support `VK_KHR_push_descriptor`:
-    - Run `vulkaninfo` and check if `VK_KHR_push_descriptor` device extension is available.
+  - `push_descriptor` is available in `VulkanSDK>=1.4.328.1`.
+- `volk>=1.4.328.1`
+  - You can add it as an additional component when installing VulkanSDK,
+  - or follow [the installation guide](https://github.com/zeux/volk)
 - `cmake>=3.15`
 
 
@@ -109,7 +114,7 @@ $ ./build/bench 10000000 vulkan
     ```
 
 ## Usage
-1. When creating `VkDevice`, add `VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME` (=`"VK_KHR_push_descriptor"`).
+1. Create `VkInstance` and `Vk
 
 1. Create `VkBuffer` for keys and values, with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`.
 
@@ -200,6 +205,7 @@ $ ./build/bench 10000000 vulkan
 - [ ] Compare with Fuchsia radix sort
 - [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.
 - [x] Support for SubgroupSize=64.
+- [ ] Load Vulkan functions correctly, depending on `#ifdef VOLK_HEADER_VERSION`.
 
 
 ## References

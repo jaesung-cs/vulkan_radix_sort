@@ -34,7 +34,7 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
 
 struct VrdxSorter_T {
   VkDevice device = VK_NULL_HANDLE;
-  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR;
+  VolkDeviceTable table;
 
   VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
   VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -53,19 +53,14 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   VkDevice device = pCreateInfo->device;
   VkPipelineCache pipelineCache = pCreateInfo->pipelineCache;
 
-  // device extensions
-  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR =
-#ifdef VRDX_USE_VOLK
-      // Assume VulkanSDK 1.4.
-      vkCmdPushDescriptorSet;
-#else
-      (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetKHR");
-#endif
+  VolkDeviceTable table;
+  volkLoadDeviceTable(&table, device);
 
   // descriptor layout
   constexpr int bindingCount = 7;
   VkDescriptorSetLayoutBinding bindings[bindingCount];
   for (int i = 0; i < bindingCount; ++i) {
+    bindings[i] = {};
     bindings[i].binding = i;
     bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[i].descriptorCount = 1;
@@ -75,10 +70,10 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   VkDescriptorSetLayout descriptorSetLayout;
   VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = {
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  descriptorSetLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+  descriptorSetLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
   descriptorSetLayoutInfo.bindingCount = bindingCount;
   descriptorSetLayoutInfo.pBindings = bindings;
-  vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout);
+  table.vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout);
 
   // pipeline layout
   VkPushConstantRange pushConstants = {};
@@ -92,7 +87,7 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstants;
-  vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout);
+  table.vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout);
 
   // pipelines
   VkPipeline upsweepPipeline;
@@ -101,7 +96,7 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     shaderModuleInfo.codeSize = sizeof(upsweep_slang);
     shaderModuleInfo.pCode = upsweep_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
+    table.vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkComputePipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -110,9 +105,9 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
-    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &upsweepPipeline);
+    table.vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &upsweepPipeline);
 
-    vkDestroyShaderModule(device, shaderModule, NULL);
+    table.vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline spinePipeline;
@@ -121,7 +116,7 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     shaderModuleInfo.codeSize = sizeof(spine_slang);
     shaderModuleInfo.pCode = spine_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
+    table.vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
 
     VkComputePipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -130,9 +125,9 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     pipelineInfo.stage.pName = "main";
     pipelineInfo.layout = pipelineLayout;
 
-    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &spinePipeline);
+    table.vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &spinePipeline);
 
-    vkDestroyShaderModule(device, shaderModule, NULL);
+    table.vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   VkPipeline downsweepPipeline;
@@ -142,11 +137,11 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     shaderModuleInfo.codeSize = sizeof(downsweep_slang);
     shaderModuleInfo.pCode = downsweep_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[0]);
+    table.vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[0]);
 
     shaderModuleInfo.codeSize = sizeof(downsweep_key_value_slang);
     shaderModuleInfo.pCode = downsweep_key_value_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[1]);
+    table.vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[1]);
 
     VkComputePipelineCreateInfo pipelineInfos[2];
     pipelineInfos[0] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
@@ -164,16 +159,16 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     pipelineInfos[1].layout = pipelineLayout;
 
     VkPipeline pipelines[2];
-    vkCreateComputePipelines(device, pipelineCache, 2, pipelineInfos, NULL, pipelines);
+    table.vkCreateComputePipelines(device, pipelineCache, 2, pipelineInfos, NULL, pipelines);
     downsweepPipeline = pipelines[0];
     downsweepKeyValuePipeline = pipelines[1];
 
-    for (auto shaderModule : shaderModules) vkDestroyShaderModule(device, shaderModule, NULL);
+    for (auto shaderModule : shaderModules) table.vkDestroyShaderModule(device, shaderModule, NULL);
   }
 
   *pSorter = new VrdxSorter_T();
   (*pSorter)->device = device;
-  (*pSorter)->vkCmdPushDescriptorSetKHR = vkCmdPushDescriptorSetKHR;
+  (*pSorter)->table = table;
 
   (*pSorter)->descriptorSetLayout = descriptorSetLayout;
   (*pSorter)->pipelineLayout = pipelineLayout;
@@ -185,13 +180,15 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
 }
 
 void vrdxDestroySorter(VrdxSorter sorter) {
-  vkDestroyPipeline(sorter->device, sorter->upsweepPipeline, NULL);
-  vkDestroyPipeline(sorter->device, sorter->spinePipeline, NULL);
-  vkDestroyPipeline(sorter->device, sorter->downsweepPipeline, NULL);
-  vkDestroyPipeline(sorter->device, sorter->downsweepKeyValuePipeline, NULL);
+  const VolkDeviceTable& table = sorter->table;
 
-  vkDestroyPipelineLayout(sorter->device, sorter->pipelineLayout, NULL);
-  vkDestroyDescriptorSetLayout(sorter->device, sorter->descriptorSetLayout, NULL);
+  table.vkDestroyPipeline(sorter->device, sorter->upsweepPipeline, NULL);
+  table.vkDestroyPipeline(sorter->device, sorter->spinePipeline, NULL);
+  table.vkDestroyPipeline(sorter->device, sorter->downsweepPipeline, NULL);
+  table.vkDestroyPipeline(sorter->device, sorter->downsweepKeyValuePipeline, NULL);
+
+  table.vkDestroyPipelineLayout(sorter->device, sorter->pipelineLayout, NULL);
+  table.vkDestroyDescriptorSetLayout(sorter->device, sorter->descriptorSetLayout, NULL);
   delete sorter;
 }
 
@@ -270,7 +267,6 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
              VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
              uint32_t query) {
   VkDevice device = sorter->device;
-  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR = sorter->vkCmdPushDescriptorSetKHR;
   VkPipelineLayout pipelineLayout = sorter->pipelineLayout;
 
   uint32_t partitionCount = RoundUp(elementCount, PARTITION_SIZE);
@@ -283,8 +279,11 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
   VkDeviceSize histogramOffset = elementCountOffset + elementCountSize;
   VkDeviceSize inoutOffset = histogramOffset + histogramSize;
 
+  const VolkDeviceTable& table = sorter->table;
+
   if (queryPool) {
-    vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPool, query + 0);
+    table.vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPool,
+                              query + 0);
   }
 
   if (indirectBuffer) {
@@ -293,25 +292,26 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
     region.srcOffset = indirectOffset;
     region.dstOffset = elementCountOffset;
     region.size = sizeof(uint32_t);
-    vkCmdCopyBuffer(commandBuffer, indirectBuffer, storageBuffer, 1, &region);
+    table.vkCmdCopyBuffer(commandBuffer, indirectBuffer, storageBuffer, 1, &region);
   } else {
     // set element count
-    vkCmdUpdateBuffer(commandBuffer, storageBuffer, elementCountOffset, sizeof(elementCount),
-                      &elementCount);
+    table.vkCmdUpdateBuffer(commandBuffer, storageBuffer, elementCountOffset, sizeof(elementCount),
+                            &elementCount);
   }
 
   // reset global histogram. partition histogram is set by shader.
-  vkCmdFillBuffer(commandBuffer, storageBuffer, histogramOffset, 4 * RADIX * sizeof(uint32_t), 0);
+  table.vkCmdFillBuffer(commandBuffer, storageBuffer, histogramOffset, 4 * RADIX * sizeof(uint32_t),
+                        0);
 
   VkMemoryBarrier memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
   memoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                       NULL);
+  table.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
+                             NULL);
 
   if (queryPool) {
-    vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, queryPool, query + 1);
+    table.vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, queryPool, query + 1);
   }
 
   PushConstants pushConstants;
@@ -350,73 +350,75 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
       writes[i].pBufferInfo = &buffers[i];
     }
 
-    vkCmdPushDescriptorSetKHR(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0,
-                              writeCount, writes);
+    table.vkCmdPushDescriptorSet(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0,
+                                 writeCount, writes);
 
-    vkCmdPushConstants(commandBuffer, sorter->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                       sizeof(pushConstants), &pushConstants);
+    table.vkCmdPushConstants(commandBuffer, sorter->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                             sizeof(pushConstants), &pushConstants);
 
     // upsweep
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, sorter->upsweepPipeline);
+    table.vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, sorter->upsweepPipeline);
 
-    vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
+    table.vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
 
     if (queryPool) {
-      vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool,
-                          query + 2 + 3 * i + 0);
+      table.vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool,
+                                query + 2 + 3 * i + 0);
     }
 
     // spine
     memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                         NULL);
+    table.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL,
+                               0, NULL);
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, sorter->spinePipeline);
+    table.vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, sorter->spinePipeline);
 
-    vkCmdDispatch(commandBuffer, RADIX, 1, 1);
+    table.vkCmdDispatch(commandBuffer, RADIX, 1, 1);
 
     if (queryPool) {
-      vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool,
-                          query + 2 + 3 * i + 1);
+      table.vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool,
+                                query + 2 + 3 * i + 1);
     }
 
     // downsweep
     memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
     memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                         NULL);
+    table.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL,
+                               0, NULL);
 
     if (valuesBuffer) {
-      vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        sorter->downsweepKeyValuePipeline);
+      table.vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              sorter->downsweepKeyValuePipeline);
     } else {
-      vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, sorter->downsweepPipeline);
+      table.vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              sorter->downsweepPipeline);
     }
 
-    vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
+    table.vkCmdDispatch(commandBuffer, partitionCount, 1, 1);
 
     if (queryPool) {
-      vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool,
-                          query + 2 + 3 * i + 2);
+      table.vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool,
+                                query + 2 + 3 * i + 2);
     }
 
     if (i < 3) {
       memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
       memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
       memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                           NULL);
+      table.vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0,
+                                 NULL, 0, NULL);
     }
   }
 
   if (queryPool) {
-    vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPool, query + 14);
+    table.vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPool,
+                              query + 14);
   }
 }
 

@@ -7,6 +7,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(Vulkan REQUIRED)
 
+# TODO: delete volk dependency
+include(FetchContent)
+FetchContent_Declare(
+  volk
+  GIT_REPOSITORY https://github.com/zeux/volk.git
+  GIT_TAG        f30088b3f4160810b53e19258dd2f7395e5f0ba3  # vulkan-sdk-1.4.328.1
+)
+FetchContent_MakeAvailable(volk)
+
+
 # find slangc
 string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
 message("slangc executable: ${SLANGC_EXECUTABLE}")
@@ -53,7 +63,7 @@ target_include_directories(vk_radix_sort
 )
 
 target_link_libraries(vk_radix_sort
-  PUBLIC Vulkan::Vulkan
+  PUBLIC Vulkan::Vulkan volk::volk_headers
 )
 
 build_shader(vk_radix_sort src/shader/upsweep.slang upsweep_slang)
@@ -69,6 +79,7 @@ if (PROJECT_IS_TOP_LEVEL)
     bench/cpu_benchmark.cc
     bench/data_generator.cc
     bench/vma_impl.cc
+    bench/volk_impl.cc
     bench/vulkan_benchmark.cc
   )
 

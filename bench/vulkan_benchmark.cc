@@ -42,12 +42,14 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 }  // namespace
 
 VulkanBenchmark::VulkanBenchmark() {
+  volkInitialize();
+
   // instance
   VkApplicationInfo application_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
   application_info.pApplicationName = "vk_radix_sort_benchmark";
-  application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
+  application_info.applicationVersion = VK_MAKE_API_VERSION(0, 2, 0, 0);
   application_info.pEngineName = "vk_radix_sort";
-  application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
+  application_info.engineVersion = VK_MAKE_API_VERSION(0, 2, 0, 0);
   application_info.apiVersion = VK_API_VERSION_1_2;
 
   VkDebugUtilsMessengerCreateInfoEXT messenger_info = {
@@ -78,6 +80,7 @@ VulkanBenchmark::VulkanBenchmark() {
   instance_info.enabledExtensionCount = instance_extensions.size();
   instance_info.ppEnabledExtensionNames = instance_extensions.data();
   vkCreateInstance(&instance_info, NULL, &instance_);
+  volkLoadInstance(instance_);
 
   CreateDebugUtilsMessengerEXT(instance_, &messenger_info, NULL, &messenger_);
 
@@ -127,6 +130,7 @@ VulkanBenchmark::VulkanBenchmark() {
   device_info.enabledExtensionCount = device_extensions.size();
   device_info.ppEnabledExtensionNames = device_extensions.data();
   vkCreateDevice(physical_device_, &device_info, NULL, &device_);
+  volkLoadDevice(device_);
 
   vkGetDeviceQueue(device_, queue_family_index_, 0, &queue_);
 
