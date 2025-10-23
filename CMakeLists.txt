@@ -7,6 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(Vulkan REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+  volk
+  GIT_REPOSITORY https://github.com/zeux/volk.git
+  GIT_TAG        f30088b3f4160810b53e19258dd2f7395e5f0ba3  # vulkan-sdk-1.4.328.1
+)
+FetchContent_MakeAvailable(volk)
+
 # find slangc
 string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
 message("slangc executable: ${SLANGC_EXECUTABLE}")
@@ -45,6 +53,7 @@ endfunction()
 # library
 add_library(vk_radix_sort STATIC
   src/vk_radix_sort.cc
+  src/volk_impl.cc
 )
 
 target_include_directories(vk_radix_sort
@@ -53,7 +62,7 @@ target_include_directories(vk_radix_sort
 )
 
 target_link_libraries(vk_radix_sort
-  PUBLIC Vulkan::Vulkan
+  PUBLIC volk::volk_headers
 )
 
 build_shader(vk_radix_sort src/shader/upsweep.slang upsweep_slang)
