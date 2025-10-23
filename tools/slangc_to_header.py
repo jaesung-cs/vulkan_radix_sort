@@ -3,10 +3,10 @@ import sys
 import subprocess
 import struct
 
+
 if __name__ == "__main__":
   argv = sys.argv.copy()
   argv[0] = "slangc"
-  subprocess.run(argv, check=True)
 
   for i in range(len(argv)):
     if argv[i] == "-o=":
@@ -16,13 +16,20 @@ if __name__ == "__main__":
       path = argv[i+1]
       break
 
-  filename = os.path.splitext(os.path.basename(path))[0]
+
+  os.makedirs(os.path.dirname(path), exist_ok=True)
+  proc = subprocess.run(argv, check=True, env=os.environ.copy(), capture_output=True)
+  stdout, stderr = proc.stdout, proc.stderr
+
+  if not os.path.exists(path):
+    raise RuntimeError("\n".join([f"Output {path} not found", f"stdout: {stdout.decode() if stdout else 'None'}", f"stderr: {stderr.decode() if stderr else 'None'}"]))
 
   with open(path, "rb") as f:
     spv = f.read()
 
   data = struct.unpack(f"<{len(spv) // 4}I", spv)
 
+  filename = os.path.splitext(os.path.basename(path))[0]
   code = "#pragma once\n"
   code += "#include <cstdint>\n"
   code += f"const uint32_t {filename}[] = {{\n"
