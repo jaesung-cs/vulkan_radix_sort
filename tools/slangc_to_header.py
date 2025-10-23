@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
   os.makedirs(os.path.dirname(path), exist_ok=True)
   proc = subprocess.run(argv, check=True, shell=True)
-  stdout, stderr = proc.stdout, proc.stder
+  stdout, stderr = proc.stdout, proc.stderr
 
   if not os.path.exists(path):
     raise RuntimeError("\n".join([f"Output {path} not found", "stdout:", stdout.decode(), "stderr:", stderr.decode()]))
