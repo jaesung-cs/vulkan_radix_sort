@@ -3,9 +3,17 @@ import sys
 import subprocess
 import struct
 
+
+def _get_slangc_path():
+  vulkan_sdk = os.getenv("VULKAN_SDK")
+  if vulkan_sdk:
+    return os.path.join(vulkan_sdk, "bin", "slangc")
+  return "slangc"
+
+
 if __name__ == "__main__":
   argv = sys.argv.copy()
-  argv[0] = "slangc"
+  argv[0] = _get_slangc_path()
 
   for i in range(len(argv)):
     if argv[i] == "-o=":
