@@ -21,7 +21,7 @@ if __name__ == "__main__":
   stdout, stderr = proc.stdout, proc.stderr
 
   if not os.path.exists(path):
-    raise RuntimeError("\n".join([f"Output {path} not found", "stdout:", stdout.decode() if stdout else None, "stderr:", stderr.decode() if stderr else None]))
+    raise RuntimeError("\n".join([f"Output {path} not found", "stdout:", stdout.decode() if stdout else "None", "stderr:", stderr.decode() if stderr else "None"]))
 
   with open(path, "rb") as f:
     spv = f.read()
