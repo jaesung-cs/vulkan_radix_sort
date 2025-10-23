@@ -34,7 +34,6 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
 
 struct VrdxSorter_T {
   VkDevice device = VK_NULL_HANDLE;
-  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR;
 
   VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
   VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -53,15 +52,6 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   VkDevice device = pCreateInfo->device;
   VkPipelineCache pipelineCache = pCreateInfo->pipelineCache;
 
-  // device extensions
-  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR =
-#ifdef VRDX_USE_VOLK
-      // Assume VulkanSDK 1.4.
-      vkCmdPushDescriptorSet;
-#else
-      (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetKHR");
-#endif
-
   // descriptor layout
   constexpr int bindingCount = 7;
   VkDescriptorSetLayoutBinding bindings[bindingCount];
@@ -75,7 +65,7 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   VkDescriptorSetLayout descriptorSetLayout;
   VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = {
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  descriptorSetLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+  descriptorSetLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
   descriptorSetLayoutInfo.bindingCount = bindingCount;
   descriptorSetLayoutInfo.pBindings = bindings;
   vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout);
@@ -173,7 +163,6 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
 
   *pSorter = new VrdxSorter_T();
   (*pSorter)->device = device;
-  (*pSorter)->vkCmdPushDescriptorSetKHR = vkCmdPushDescriptorSetKHR;
 
   (*pSorter)->descriptorSetLayout = descriptorSetLayout;
   (*pSorter)->pipelineLayout = pipelineLayout;
@@ -270,7 +259,6 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
              VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
              uint32_t query) {
   VkDevice device = sorter->device;
-  PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR = sorter->vkCmdPushDescriptorSetKHR;
   VkPipelineLayout pipelineLayout = sorter->pipelineLayout;
 
   uint32_t partitionCount = RoundUp(elementCount, PARTITION_SIZE);
@@ -350,8 +338,8 @@ void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementC
       writes[i].pBufferInfo = &buffers[i];
     }
 
-    vkCmdPushDescriptorSetKHR(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0,
-                              writeCount, writes);
+    vkCmdPushDescriptorSet(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0,
+                           writeCount, writes);
 
     vkCmdPushConstants(commandBuffer, sorter->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                        sizeof(pushConstants), &pushConstants);

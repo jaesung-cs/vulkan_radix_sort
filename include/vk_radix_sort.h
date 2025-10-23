@@ -1,11 +1,7 @@
 #ifndef VK_RADIX_SORT_H
 #define VK_RADIX_SORT_H
 
-#ifdef VRDX_USE_VOLK
 #include "volk.h"
-#else
-#include <vulkan/vulkan.h>
-#endif
 
 struct VrdxSorter_T;
 
