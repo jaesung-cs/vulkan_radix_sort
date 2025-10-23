@@ -26,18 +26,6 @@ function(build_shader)
 
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
-    COMMAND which slangc
-    COMMAND slangc -v
-    COMMAND
-      ${SLANGC_EXECUTABLE}
-      -target spirv
-      -fvk-t-shift 0 0
-      -fvk-u-shift 0 0
-      -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
-      -dump-intermediates
-      ${DEFINES}
-      ${SHADER}
-    COMMAND cat 2.spv-asm
     COMMAND
       python ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
       -target spirv
