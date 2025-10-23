@@ -6,7 +6,7 @@ import struct
 if __name__ == "__main__":
   argv = sys.argv.copy()
   argv[0] = "slangc"
-  subprocess.run(argv, check=True)
+  subprocess.run(argv, check=True, shell=True)
 
   for i in range(len(argv)):
     if argv[i] == "-o=":
