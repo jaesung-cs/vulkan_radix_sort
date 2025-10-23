@@ -3,16 +3,9 @@ import sys
 import subprocess
 import struct
 
-def _get_slangc_path():
-  vulkan_sdk = os.getenv("VULKAN_SDK")
-  if vulkan_sdk:
-    return os.path.join(vulkan_sdk, "bin", "slangc")
-  return "slangc"
-
 if __name__ == "__main__":
   argv = sys.argv.copy()
-  argv[0] = _get_slangc_path()
-  subprocess.run(argv, check=True, shell=True)
+  argv[0] = "slangc"
 
   for i in range(len(argv)):
     if argv[i] == "-o=":
@@ -22,13 +15,20 @@ if __name__ == "__main__":
       path = argv[i+1]
       break
 
-  filename = os.path.splitext(os.path.basename(path))[0]
+
+  os.makedirs(os.path.dirname(path), exist_ok=True)
+  proc = subprocess.run(argv, check=True, shell=True)
+  stdout, stderr = proc.stdout, proc.stder
+
+  if not os.path.exists(path):
+    raise RuntimeError("\n".join([f"Output {path} not found", "stdout:", stdout.decode(), "stderr:", stderr.decode()]))
 
   with open(path, "rb") as f:
     spv = f.read()
 
   data = struct.unpack(f"<{len(spv) // 4}I", spv)
 
+  filename = os.path.splitext(os.path.basename(path))[0]
   code = "#pragma once\n"
   code += "#include <cstdint>\n"
   code += f"const uint32_t {filename}[] = {{\n"
