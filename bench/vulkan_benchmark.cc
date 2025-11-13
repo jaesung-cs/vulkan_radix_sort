@@ -42,13 +42,15 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 }  // namespace
 
 VulkanBenchmark::VulkanBenchmark() {
+  volkInitialize();
+
   // instance
   VkApplicationInfo application_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
   application_info.pApplicationName = "vk_radix_sort_benchmark";
   application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
   application_info.pEngineName = "vk_radix_sort";
   application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
-  application_info.apiVersion = VK_API_VERSION_1_2;
+  application_info.apiVersion = VK_API_VERSION_1_4;
 
   VkDebugUtilsMessengerCreateInfoEXT messenger_info = {
       VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -78,6 +80,7 @@ VulkanBenchmark::VulkanBenchmark() {
   instance_info.enabledExtensionCount = instance_extensions.size();
   instance_info.ppEnabledExtensionNames = instance_extensions.data();
   vkCreateInstance(&instance_info, NULL, &instance_);
+  volkLoadInstance(instance_);
 
   CreateDebugUtilsMessengerEXT(instance_, &messenger_info, NULL, &messenger_);
 
@@ -115,7 +118,6 @@ VulkanBenchmark::VulkanBenchmark() {
   queue_infos[0].pQueuePriorities = queue_priorities.data();
 
   std::vector<const char*> device_extensions = {
-      VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 #ifdef __APPLE__
       "VK_KHR_portability_subset",
 #endif
@@ -127,14 +129,20 @@ VulkanBenchmark::VulkanBenchmark() {
   device_info.enabledExtensionCount = device_extensions.size();
   device_info.ppEnabledExtensionNames = device_extensions.data();
   vkCreateDevice(physical_device_, &device_info, NULL, &device_);
+  volkLoadDevice(device_);
 
   vkGetDeviceQueue(device_, queue_family_index_, 0, &queue_);
 
   // vma
+  VmaVulkanFunctions functions = {};
+  functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+  functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
   VmaAllocatorCreateInfo allocator_info = {};
   allocator_info.physicalDevice = physical_device_;
   allocator_info.device = device_;
   allocator_info.instance = instance_;
+  allocator_info.pVulkanFunctions = &functions;
   allocator_info.vulkanApiVersion = application_info.apiVersion;
   vmaCreateAllocator(&allocator_info, &allocator_);
 
@@ -184,6 +192,8 @@ VulkanBenchmark::~VulkanBenchmark() {
   vkDestroyDevice(device_, NULL);
   DestroyDebugUtilsMessengerEXT(instance_, messenger_, NULL);
   vkDestroyInstance(instance_, NULL);
+
+  volkFinalize();
 }
 
 void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage,

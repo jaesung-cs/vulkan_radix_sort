@@ -19,21 +19,17 @@ FetchContent_MakeAvailable(volk)
 string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
 message("slangc executable: ${SLANGC_EXECUTABLE}")
 
-# adds -fPIC, works for linux, when building shared library
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 # shaders
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
-# build_shader(TARGET SHADER OUTPUT DEFINE...)
+# build_shader(SHADER OUTPUT DEFINE...)
 function(build_shader)
-  list(POP_FRONT ARGV TARGET SHADER OUTPUT)
+  list(POP_FRONT ARGV SHADER OUTPUT)
   list(TRANSFORM ARGV PREPEND "-D" OUTPUT_VARIABLE DEFINES)
 
   get_filename_component(SHADER ${SHADER} ABSOLUTE)
 
-  add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
+  add_custom_target(${OUTPUT} ALL
     COMMAND
       python ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
       -target spirv
@@ -42,42 +38,41 @@ function(build_shader)
       -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
       ${DEFINES}
       ${SHADER}
-    DEPENDS ${SHADER}
     COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h"
   )
-
-  add_custom_target(${OUTPUT} DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h)
-  add_dependencies(${TARGET} ${OUTPUT})
 endfunction()
 
-# library
-add_library(vk_radix_sort STATIC
-  src/vk_radix_sort.cc
-  src/volk_impl.cc
+# header-only library
+add_library(vk_radix_sort INTERFACE)
+
+target_include_directories(vk_radix_sort INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
-target_include_directories(vk_radix_sort
-  PUBLIC include
-  PRIVATE src
-)
-
-target_link_libraries(vk_radix_sort
-  PUBLIC volk::volk_headers
-)
-
-build_shader(vk_radix_sort src/shader/upsweep.slang upsweep_slang)
-build_shader(vk_radix_sort src/shader/spine.slang spine_slang)
-build_shader(vk_radix_sort src/shader/downsweep.slang downsweep_slang)
-build_shader(vk_radix_sort src/shader/downsweep.slang downsweep_key_value_slang KEY_VALUE)
+build_shader(src/shader/upsweep.slang upsweep_slang)
+build_shader(src/shader/spine.slang spine_slang)
+build_shader(src/shader/downsweep.slang downsweep_slang)
+build_shader(src/shader/downsweep.slang downsweep_key_value_slang KEY_VALUE)
 
 # bench
 if (PROJECT_IS_TOP_LEVEL)
+  include(FetchContent)
+  FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG        f30088b3f4160810b53e19258dd2f7395e5f0ba3  # vulkan-sdk-1.4.328.1
+  )
+  FetchContent_MakeAvailable(volk)
+
   set(BENCH_SOURCES
     bench/bench.cc
     bench/benchmark_factory.cc
     bench/cpu_benchmark.cc
     bench/data_generator.cc
     bench/vma_impl.cc
+    bench/volk_impl.cc
+    bench/vrdx_impl.cc
     bench/vulkan_benchmark.cc
   )
 
@@ -104,5 +99,7 @@ if (PROJECT_IS_TOP_LEVEL)
     add_subdirectory(third_party/VulkanMemoryAllocator EXCLUDE_FROM_ALL)
   endif()
 
-  target_link_libraries(bench PRIVATE vk_radix_sort VulkanMemoryAllocator)
+  target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
+
+  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator)
 endif()

@@ -5,7 +5,11 @@ Vulkan implementation of radix sort.
 Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.)
 
 
-## Recent Changes
+## Change History
+- `v0.2.0`
+  - Single-file header-only library.
+  - Requires `VulkanSDK>=1.4` to use push descriptor.
+  - Requires `Volk`.
 - `v0.1.0`
   - Use `VK_KHR_push_descriptor` instead of `VK_KHR_buffer_device_address`
     - Not to use vulkan-specific language in shader codes.
@@ -22,11 +26,11 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 - `VulkanSDK>=1.4.328.1`
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
   - `slangc` executable is included in `VulkanSDK>=1.3.296.0`.
-  - `push_descriptor` is available in `VulkanSDK>=1.4.328.1`.
+  - `push_descriptor` is available in `VulkanSDK>=1.4`, and especially for MacOS, `VulkanSDK>=1.4.328.1`.
 - `cmake>=3.15`
 
 
-## Build
+## Build Benchmark
 ```bash
 $ cmake . -B build
 $ cmake --build build --config Release -j
@@ -96,18 +100,20 @@ $ ./build/bench 10000000 vulkan
   ```
 
 ## Use as a Library with CMake
-- Add subdirectory `vulkan_radix_sort`
+1. Add subdirectory `vulkan_radix_sort`
     ```cmake
     add_subdirectory(path/to/vulkan_radix_sort)
     ```
 
-- Link to `vk_radix_sort` in your project (library, binary)
+1. Link to `vk_radix_sort` in your project (library, binary)
     ```cmake
-    target_link_libraries(my_project PRIVATE Vulkan::Vulkan VulkanMemoryAllocator vk_radix_sort)
+    target_link_libraries(my_project PRIVATE volk::volk_headers VulkanMemoryAllocator vk_radix_sort)
     ```
 
 ## Usage
-1. When creating `VkDevice`, add `VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME` (=`"VK_KHR_push_descriptor"`).
+This is a single header-only libary.
+
+1. In exactly one source file, define `VRDX_IMPLEMENTATION` before including `vk_radix_sort.h`.
 
 1. Create `VkBuffer` for keys and values, with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`.
 
@@ -187,6 +193,17 @@ $ ./build/bench 10000000 vulkan
                                 storageBuffer, 0,
                                 queryPool, 0);
     ```
+
+## Development Guide
+Run cmake build command once shader codes are changed.
+```bash
+$ cmake . -B build
+$ cmake --build build --config Release -j
+```
+
+The cmake command runs slang compiler and generates header files into `src/generated/*.h`.
+
+Manually copy-and-paste the compiled shader codes into `vk_radix_sort.h`.
 
 
 ## TODO
