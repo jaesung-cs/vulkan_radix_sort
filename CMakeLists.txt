@@ -7,14 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 find_package(Vulkan REQUIRED)
 
-include(FetchContent)
-FetchContent_Declare(
-  volk
-  GIT_REPOSITORY https://github.com/zeux/volk.git
-  GIT_TAG        f30088b3f4160810b53e19258dd2f7395e5f0ba3  # vulkan-sdk-1.4.328.1
-)
-FetchContent_MakeAvailable(volk)
-
 # find slangc
 string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
 message("slangc executable: ${SLANGC_EXECUTABLE}")
@@ -99,7 +91,7 @@ if (PROJECT_IS_TOP_LEVEL)
     add_subdirectory(third_party/VulkanMemoryAllocator EXCLUDE_FROM_ALL)
   endif()
 
-  target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
+  target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES VRDX_USE_VOLK)
 
   target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator)
 endif()

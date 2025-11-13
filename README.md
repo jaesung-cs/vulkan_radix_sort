@@ -6,6 +6,8 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 
 
 ## Change History
+- `v0.2.1`
+  - `Volk` is optional. A User can control which vulkan header to load with `VRDX_USE_VOLK` definition.
 - `v0.2.0`
   - Single-file header-only library.
   - Requires `VulkanSDK>=1.4` to use push descriptor.
@@ -107,7 +109,12 @@ $ ./build/bench 10000000 vulkan
 
 1. Link to `vk_radix_sort` in your project (library, binary)
     ```cmake
-    target_link_libraries(my_project PRIVATE volk::volk_headers VulkanMemoryAllocator vk_radix_sort)
+    # To use `#include "volk.h"`
+    target_compile_definitions(my_project PRIVATE VRDX_USE_VOLK)
+    target_link_libraries(my_project PRIVATE volk::volk_headers vk_radix_sort)
+
+    # Or just want `#include <vulkan/vulkan.h>`
+    target_link_libraries(my_project PRIVATE Vulkan::Vulkan vk_radix_sort)
     ```
 
 ## Usage
