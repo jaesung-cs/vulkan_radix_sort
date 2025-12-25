@@ -2,6 +2,7 @@
 #define VK_RADIX_SORT_BENCHMARK_BASE_H
 
 #include <vector>
+#include <cstdint>
 
 class BenchmarkBase {
  protected:

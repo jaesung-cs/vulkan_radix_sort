@@ -1,6 +1,7 @@
 #include "vulkan_benchmark.h"
 
 #include <iostream>
+#include <cstring>
 
 namespace {
 
