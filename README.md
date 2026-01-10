@@ -6,6 +6,8 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
 
 
 ## Change History
+- `v0.2.2`
+  - Use `minStorageBufferOffsetAlignment` instead of fixed `16` (@hypengw)
 - `v0.2.1`
   - `Volk` is optional. A User can control which vulkan header to load with `VRDX_USE_VOLK` definition.
 - `v0.2.0`
