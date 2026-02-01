@@ -125,7 +125,6 @@ VulkanBenchmark::VulkanBenchmark() {
 
   // extensions
   std::vector<const char*> device_extensions = {
-      VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 #ifdef __APPLE__
       "VK_KHR_portability_subset",
 #endif

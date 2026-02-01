@@ -27,6 +27,7 @@ function(build_shader)
       -target spirv
       -fvk-t-shift 0 0
       -fvk-u-shift 0 0
+      -fvk-use-c-layout
       -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
       ${DEFINES}
       ${SHADER}

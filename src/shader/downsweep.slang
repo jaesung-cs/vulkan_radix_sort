@@ -1,14 +1,17 @@
 import constants;
 
-StructuredBuffer<uint> elementCounts : register(t0, space0);
-RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
-RWStructuredBuffer<uint> partitionHistogram : register(u2, space0);
-StructuredBuffer<uint> keysIn : register(t3, space0);
-RWStructuredBuffer<uint> keysOut : register(u4, space0);
+struct Data {
+  uint pass;
+  uint* elementCounts;
+  uint* globalHistogram;
+  uint* partitionHistogram;
+  uint* keysIn;
+  uint* keysOut;
 #ifdef KEY_VALUE
-StructuredBuffer<uint> valuesIn : register(t5, space0);
-RWStructuredBuffer<uint> valuesOut : register(u6, space0);
+  uint* valuesIn;
+  uint* valuesOut;
 #endif  // KEY_VALUE
+};
 
 groupshared uint localHistogram[PARTITION_SIZE];  // (R, S=16)=4096, (P) for alias. take maximum.
 groupshared uint localHistogramSum[RADIX];
@@ -36,8 +39,8 @@ uint GetBitCount(uint4 value) {
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE)]
 void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
-          uint groupIndex: SV_GroupIndex, uniform int pass) {
-  uint elementCount = elementCounts[0];
+          uint groupIndex: SV_GroupIndex, uniform Data data) {
+  uint elementCount = data.elementCounts[0];
 
   uint laneIndex = WaveGetLaneIndex();          // 0..31 or 0..63
   uint laneCount = WaveGetLaneCount();          // 32 or 64
@@ -73,14 +76,14 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint keyIndex =
         partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
-    uint key = keyIndex < elementCount ? keysIn[keyIndex] : 0xffffffff;
+    uint key = keyIndex < elementCount ? data.keysIn[keyIndex] : 0xffffffff;
     localKeys[i] = key;
 
 #ifdef KEY_VALUE
-    localValues[i] = keyIndex < elementCount ? valuesIn[keyIndex] : 0;
+    localValues[i] = keyIndex < elementCount ? data.valuesIn[keyIndex] : 0;
 #endif  // KEY_VALUE
 
-    uint radix = bitfieldExtract(key, pass * 8, 8);
+    uint radix = bitfieldExtract(key, data.pass * 8, 8);
     localRadix[i] = radix;
 
     // mask per digit
@@ -173,8 +176,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   // after atomicAdd, localHistogram contains inclusive sum
   if (index < RADIX) {
     uint v = index == 0 ? 0 : localHistogram[waveCount * index - 1];
-    localHistogramSum[index] = globalHistogram[RADIX * pass + index] +
-                               partitionHistogram[RADIX * partitionIndex + index] - v;
+    localHistogramSum[index] = data.globalHistogram[RADIX * data.pass + index] +
+                               data.partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   GroupMemoryBarrierWithGroupSync();
 
@@ -189,10 +192,10 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   // binning
   for (uint i = index; i < PARTITION_SIZE; i += WORKGROUP_SIZE) {
     uint key = localHistogram[i];
-    uint radix = bitfieldExtract(key, pass * 8, 8);
+    uint radix = bitfieldExtract(key, data.pass * 8, 8);
     uint dstOffset = localHistogramSum[radix] + i;
     if (dstOffset < elementCount) {
-      keysOut[dstOffset] = key;
+      data.keysOut[dstOffset] = key;
     }
 
 #ifdef KEY_VALUE
@@ -213,7 +216,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint value = localHistogram[i];
     uint dstOffset = localKeys[i / WORKGROUP_SIZE];
     if (dstOffset < elementCount) {
-      valuesOut[dstOffset] = value;
+      data.valuesOut[dstOffset] = value;
     }
   }
 #endif  // KEY_VALUE
