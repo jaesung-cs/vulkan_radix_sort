@@ -2368,7 +2368,9 @@ VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
                align);
 }
 
-VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) { return Align(elementCount * sizeof(uint32_t), align); }
+VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) {
+  return Align(elementCount * sizeof(uint32_t), align);
+}
 
 void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
              VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer buffer,
@@ -2547,7 +2549,8 @@ void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCoun
   VkDeviceSize storageSize = inoutOffset + inoutSize;
 
   requirements->size = storageSize;
-  requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 }
 
 void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
@@ -2565,7 +2568,8 @@ void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxEle
   VkDeviceSize storageSize = inoutOffset + Align(inoutSize, align) + inoutSize;
 
   requirements->size = storageSize;
-  requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 }
 
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,

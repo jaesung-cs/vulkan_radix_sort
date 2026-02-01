@@ -118,13 +118,21 @@ VulkanBenchmark::VulkanBenchmark() {
   queue_infos[0].queueCount = queue_priorities.size();
   queue_infos[0].pQueuePriorities = queue_priorities.data();
 
+  // features
+  VkPhysicalDeviceBufferDeviceAddressFeatures buffer_device_address_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+  buffer_device_address_features.bufferDeviceAddress = VK_TRUE;
+
+  // extensions
   std::vector<const char*> device_extensions = {
+      VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 #ifdef __APPLE__
       "VK_KHR_portability_subset",
 #endif
   };
 
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  device_info.pNext = &buffer_device_address_features;
   device_info.queueCreateInfoCount = queue_infos.size();
   device_info.pQueueCreateInfos = queue_infos.data();
   device_info.enabledExtensionCount = device_extensions.size();
@@ -140,6 +148,7 @@ VulkanBenchmark::VulkanBenchmark() {
   functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
 
   VmaAllocatorCreateInfo allocator_info = {};
+  allocator_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   allocator_info.physicalDevice = physical_device_;
   allocator_info.device = device_;
   allocator_info.instance = instance_;
@@ -232,7 +241,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
   Reallocate(&keys_, inout_size,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
   VrdxSorterStorageRequirements requirements;
   vrdxGetSorterStorageRequirements(sorter_, element_count, &requirements);
@@ -308,7 +317,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
   Reallocate(&keys_, 2 * inout_size + 16,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
   VrdxSorterStorageRequirements requirements;
   vrdxGetSorterKeyValueStorageRequirements(sorter_, element_count, &requirements);
