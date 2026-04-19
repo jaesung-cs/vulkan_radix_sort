@@ -124,7 +124,11 @@ VulkanBenchmark::VulkanBenchmark() {
 #endif
   };
 
+  VkPhysicalDeviceVulkan14Features features14 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+  features14.pushDescriptor = VK_TRUE;
+
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  device_info.pNext = &features14;
   device_info.queueCreateInfoCount = queue_infos.size();
   device_info.pQueueCreateInfos = queue_infos.data();
   device_info.enabledExtensionCount = device_extensions.size();

@@ -35,7 +35,7 @@ if __name__ == "__main__":
   code += f"const uint32_t {filename}[] = {{\n"
   for i in range(0, len(data), 8):
     words = [f"0x{x:08x}" for x in data[i:i+8]]
-    line = "  " + ",".join(words) + ",\n"
+    line = "    " + ", ".join(words) + ",\n"
     code += line
   code += "};\n"
 
