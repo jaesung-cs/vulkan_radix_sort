@@ -79,6 +79,8 @@ Median throughput at N = 2^25 (33,554,432 elements):
 CUB Onesweep is roughly 2× faster for keys-only and 1.3× for key-value at large N.
 The previous comparison was against CUB Reduce-then-Scan, where this library was competitive.
 
+![Benchmark Result](media/results.png)
+
 ## Use as a Library with CMake
 1. Add subdirectory `vulkan_radix_sort`
     ```cmake
