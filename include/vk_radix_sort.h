@@ -7,6 +7,12 @@
 #include <vulkan/vulkan.h>
 #endif
 
+#define VRDX_VERSION_MAJOR 0
+#define VRDX_VERSION_MINOR 3
+#define VRDX_VERSION_PATCH 0
+#define VRDX_VERSION \
+  ((VRDX_VERSION_MAJOR << 22) | (VRDX_VERSION_MINOR << 12) | VRDX_VERSION_PATCH)
+
 struct VrdxSorter_T;
 
 /**

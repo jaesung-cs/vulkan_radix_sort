@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(vk_radix_sort LANGUAGES CXX)
+project(vk_radix_sort VERSION 0.3.0 LANGUAGES CXX)
 
 find_package(Vulkan REQUIRED)
 find_package(Python3 REQUIRED)
@@ -53,6 +53,7 @@ add_custom_target(vk_radix_sort_header ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/src/vk_radix_sort.h.in
     ${CMAKE_CURRENT_SOURCE_DIR}/include/vk_radix_sort.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
+    ${PROJECT_VERSION_MAJOR} ${PROJECT_VERSION_MINOR} ${PROJECT_VERSION_PATCH}
   DEPENDS
     upsweep_slang
     spine_slang
