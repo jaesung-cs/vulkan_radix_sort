@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <chrono>
 
 namespace {
 
@@ -99,7 +100,7 @@ VulkanBenchmark::VulkanBenchmark() {
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_family_count,
                                            queue_families.data());
 
-  for (int i = 0; i < queue_families.size(); ++i) {
+  for (size_t i = 0; i < queue_families.size(); ++i) {
     const auto& queue_family = queue_families[i];
     if ((queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT) == VK_QUEUE_COMPUTE_BIT &&
         (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) {
@@ -124,7 +125,11 @@ VulkanBenchmark::VulkanBenchmark() {
 #endif
   };
 
+  VkPhysicalDeviceVulkan14Features features14 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+  features14.pushDescriptor = VK_TRUE;
+
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  device_info.pNext = &features14;
   device_info.queueCreateInfoCount = queue_infos.size();
   device_info.pQueueCreateInfos = queue_infos.data();
   device_info.enabledExtensionCount = device_extensions.size();
@@ -270,8 +275,10 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
               query_pool_, 0);
 
   vkEndCommandBuffer(command_buffer_);
+  auto cpu_start = std::chrono::steady_clock::now();
   vkQueueSubmit(queue_, 1, &submit, fence_);
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  auto cpu_end = std::chrono::steady_clock::now();
   vkResetFences(device_, 1, &fence_);
 
   // copy back
@@ -296,6 +303,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   result.keys.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
   result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
+  result.cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
   return result;
 }
 
@@ -349,8 +357,10 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
                               query_pool_, 0);
 
   vkEndCommandBuffer(command_buffer_);
+  auto cpu_start = std::chrono::steady_clock::now();
   vkQueueSubmit(queue_, 1, &submit, fence_);
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  auto cpu_end = std::chrono::steady_clock::now();
   vkResetFences(device_, 1, &fence_);
 
   // copy back
@@ -377,5 +387,6 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
   std::memcpy(result.values.data(), staging_.map + inout_size, element_count * sizeof(uint32_t));
   result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
+  result.cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
   return result;
 }

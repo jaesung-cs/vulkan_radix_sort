@@ -2,10 +2,19 @@
 
 Vulkan implementation of radix sort.
 
-Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.)
+Reduce-then-scan GPU radix sort algorithm is implemented.
+As a header-only Vulkan library, it can be easily integrated into any Vulkan-based project without additional dependencies, making it suitable for applications such as 3D Gaussian Splatting rendering.
+
+> **Note:** As of January 2025, this library was competitive with CUB Reduce-then-Scan radix sort.
+> However, benchmarking in April 2025 against CUB v3.3.0 (which now defaults to Onesweep) shows CUB is faster: 2.1× for keys-only (10.66 vs 22.40 GItems/s) and 1.3× for key-value (9.04 vs 11.68 GItems/s) at N = 2^25.
 
 
 ## Change History
+- `v0.3.0`
+  - Benchmark sweeps N linearly from 2^18 to 2^25 (128 steps), measuring both keys-only and key-value sort.
+  - Benchmark outputs CSV with GPU and CPU wall-clock throughput per (N, sort type).
+  - Added `tools/plot.py` for plotting benchmark results with matplotlib.
+  - Header generation automated via `src/vk_radix_sort.h.in` template and `tools/generate_header.py`.
 - `v0.2.2`
   - Use `minStorageBufferOffsetAlignment` instead of fixed `16` (@hypengw)
 - `v0.2.1`
@@ -31,7 +40,7 @@ Reduce-then-scan GPU radix sort algorithm is implemented (Onesweep is abandoned.
   - Download from https://vulkan.lunarg.com/ and follow install instruction.
   - `slangc` executable is included in `VulkanSDK>=1.3.296.0`.
   - `push_descriptor` is available in `VulkanSDK>=1.4`, and especially for MacOS, `VulkanSDK>=1.4.328.1`.
-- `cmake>=3.15`
+- `cmake>=3.24`
 
 
 ## Build Benchmark
@@ -42,12 +51,18 @@ $ cmake --build build --config Release -j
 
 ## Test
 ```bash
-$ ./build/Release/bench.exe <N> <type>  # Windows
-$ ./build/bench <N> <type>              # Linux
-$ ./build/bench 10000000 vulkan
+$ ./build/Release/bench.exe <type> [output.csv]  # Windows
+$ ./build/bench <type> [output.csv]              # Linux
+$ ./build/Release/bench.exe vulkan results.csv
 ```
-- N = number of elements to sort
-- type = one of cpu,vulkan,cuda
+- type = one of cpu, vulkan, cuda
+- Sweeps N linearly from 2^18 to 2^25 (128 steps), 1 warmup + 10 timed runs each
+- Writes per-N median GPU and CPU wall-clock throughput to CSV
+
+Plot results:
+```bash
+$ python tools/plot.py vulkan.csv cuda.csv results.png
+```
 
 
 ### Test Environment
@@ -55,53 +70,17 @@ $ ./build/bench 10000000 vulkan
 
 
 ### Benchmark Result
-- Not precisely benchmarked, but the speed is competitive compared to CUB **Reduce-then-Scan** radix sort.
-  - I could infer CUB runs from `DeviceRadixSortUpsweepKernel`, `RadixSortScanBinsKernel`, `DeviceRadixSortDownsweepKernel`
-  - There seems a way to enable CUB `Onesweep` in the [CUB benchmark code](https://github.com/NVIDIA/cccl/blob/main/cub/benchmarks/bench/radix_sort/keys.cu), I will study it some time!
-- 32-bit key-only: my implementation is 10% slower when sorting 33M (2^25) elements.
-- 32-bit Key-value: my implementation is 15-25% faster when sorting 33M (2^25) key-value pairs.
-- vulkan
-  ```bash
-  > .\build\Release\bench.exe 33554432 vulkan
-  vk_radix_sort benchmark
-  ================ sort ================
-  total time: 2.67571ms (12.5404 GItems/s)
-  ================ sort key value ================
-  total time: 3.42221ms (9.80491 GItems/s)
-  ================ sort key value speed ================
-  [0] total time: 3.41706ms (9.81969 GItems/s)
-  [1] total time: 3.43142ms (9.77857 GItems/s)
-  [2] total time: 3.42298ms (9.80271 GItems/s)
-  [3] total time: 3.46208ms (9.69199 GItems/s)
-  [4] total time: 3.42426ms (9.79904 GItems/s)
-  [5] total time: 3.43725ms (9.762 GItems/s)
-  [6] total time: 3.42016ms (9.81078 GItems/s)
-  [7] total time: 3.42016ms (9.81078 GItems/s)
-  [8] total time: 3.42099ms (9.80839 GItems/s)
-  [9] total time: 3.41606ms (9.82254 GItems/s)
-  ...
-  ```
-- CUDA Version 12.6 CUB Reduce-then-Scan
-  ```bash
-  > .\build\Release\bench.exe 33554432 cuda
-  vk_radix_sort benchmark
-  ================ sort ================
-  total time: 2.5047ms (13.3966 GItems/s)
-  ================ sort key value ================
-  total time: 4.19226ms (8.00391 GItems/s)
-  ================ sort key value speed ================
-  [0] total time: 4.20352ms (7.98246 GItems/s)
-  [1] total time: 4.50355ms (7.45066 GItems/s)
-  [2] total time: 4.21376ms (7.96306 GItems/s)
-  [3] total time: 4.22298ms (7.94568 GItems/s)
-  [4] total time: 4.22208ms (7.94737 GItems/s)
-  [5] total time: 4.2199ms (7.95147 GItems/s)
-  [6] total time: 4.21274ms (7.965 GItems/s)
-  [7] total time: 4.20352ms (7.98246 GItems/s)
-  [8] total time: 4.21376ms (7.96306 GItems/s)
-  [9] total time: 4.21478ms (7.96113 GItems/s)
-  ...
-  ```
+
+Test environment: Windows, NVIDIA GeForce RTX 4090, CUDA 12.6, CUB v3.3.0 (Onesweep default).
+
+Median throughput at N = 2^25 (33,554,432 elements):
+
+| Sort type | This library (Vulkan) | CUB Onesweep (CUDA) | Speed Ratio (CUB / Vulkan) |
+|---|---|---|---|
+| 32-bit keys only | 10.66 GItems/s | 22.40 GItems/s | 2.10× |
+| 32-bit key-value | 9.04 GItems/s | 11.68 GItems/s | 1.29× |
+
+![Benchmark Result](media/results.png)
 
 ## Use as a Library with CMake
 1. Add subdirectory `vulkan_radix_sort`
@@ -120,7 +99,7 @@ $ ./build/bench 10000000 vulkan
     ```
 
 ## Usage
-This is a single header-only libary.
+This is a single header-only library.
 
 1. In exactly one source file, define `VRDX_IMPLEMENTATION` before including `vk_radix_sort.h`.
 
@@ -210,16 +189,14 @@ $ cmake . -B build
 $ cmake --build build --config Release -j
 ```
 
-The cmake command runs slang compiler and generates header files into `src/generated/*.h`.
-
-Manually copy-and-paste the compiled shader codes into `vk_radix_sort.h`.
+The cmake command runs slang compiler, generates header files into `src/generated/*.h`, and then automatically regenerates `include/vk_radix_sort.h` from `src/vk_radix_sort.h.in` via `tools/generate_header.py`.
 
 
 ## TODO
 - [x] Use `VkPhysicalDeviceLimits` to get compute shader-related limits, such as `maxComputeWorkGroupSize` or `maxComputeSharedMemorySize`.
 - [x] Increase allowed `maxElementCount` by allocating buffers properly.
 - [x] Compare with CUB Reduce-then-Scan radix sort
-- [ ] Compare with CUB Onesweep radix sort
+- [x] Compare with CUB Onesweep radix sort
 - [ ] Compare with VkRadixSort
 - [ ] Compare with Fuchsia radix sort
 - [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.

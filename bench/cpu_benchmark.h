@@ -12,7 +12,6 @@ class CpuBenchmark : public BenchmarkBase {
   Results SortKeyValue(const std::vector<uint32_t>& keys,
                        const std::vector<uint32_t>& values) override;
 
- private:
 };
 
 #endif  // VK_RADIX_SORT_CPU_BENCHMARK_H

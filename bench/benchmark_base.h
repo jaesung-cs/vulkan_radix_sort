@@ -5,11 +5,12 @@
 #include <cstdint>
 
 class BenchmarkBase {
- protected:
+ public:
   struct Results {
     std::vector<uint32_t> keys;
     std::vector<uint32_t> values;
-    uint64_t total_time;  // ns
+    uint64_t total_time = 0;  // ns (GPU timestamps)
+    uint64_t cpu_time = 0;    // ns (wall clock, submit to fence signaled)
   };
 
  public:
@@ -20,7 +21,6 @@ class BenchmarkBase {
   virtual Results SortKeyValue(const std::vector<uint32_t>& keys,
                                const std::vector<uint32_t>& values) = 0;
 
- private:
 };
 
 #endif  // VK_RADIX_SORT_BENCHMARK_BASE_H

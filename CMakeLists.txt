@@ -1,15 +1,14 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.24)
 
 project(vk_radix_sort LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
-
 find_package(Vulkan REQUIRED)
+find_package(Python3 REQUIRED)
+include(FetchContent)
 
 # find slangc
 string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
-message("slangc executable: ${SLANGC_EXECUTABLE}")
+message(STATUS "slangc executable: ${SLANGC_EXECUTABLE}")
 
 # shaders
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
@@ -23,7 +22,7 @@ function(build_shader)
 
   add_custom_target(${OUTPUT} ALL
     COMMAND
-      python ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
+      ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
       -target spirv
       -fvk-t-shift 0 0
       -fvk-u-shift 0 0
@@ -31,6 +30,7 @@ function(build_shader)
       ${DEFINES}
       ${SHADER}
     COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h"
+    VERBATIM
   )
 endfunction()
 
@@ -47,15 +47,39 @@ build_shader(src/shader/spine.slang spine_slang)
 build_shader(src/shader/downsweep.slang downsweep_slang)
 build_shader(src/shader/downsweep.slang downsweep_key_value_slang KEY_VALUE)
 
+add_custom_target(vk_radix_sort_header ALL
+  COMMAND
+    ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_header.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vk_radix_sort.h.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/vk_radix_sort.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
+  DEPENDS
+    upsweep_slang
+    spine_slang
+    downsweep_slang
+    downsweep_key_value_slang
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/vk_radix_sort.h.in
+  COMMENT "Generating include/vk_radix_sort.h from template"
+  VERBATIM
+)
+
+add_dependencies(vk_radix_sort vk_radix_sort_header)
+
 # bench
-if (PROJECT_IS_TOP_LEVEL)
-  include(FetchContent)
+if(PROJECT_IS_TOP_LEVEL)
   FetchContent_Declare(
     volk
     GIT_REPOSITORY https://github.com/zeux/volk.git
     GIT_TAG        f30088b3f4160810b53e19258dd2f7395e5f0ba3  # vulkan-sdk-1.4.328.1
   )
-  FetchContent_MakeAvailable(volk)
+
+  FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        1d8f600fd424278486eade7ed3e877c99f0846b1  # v3.3.0
+  )
+
+  FetchContent_MakeAvailable(volk VulkanMemoryAllocator)
 
   set(BENCH_SOURCES
     bench/bench.cc
@@ -68,27 +92,39 @@ if (PROJECT_IS_TOP_LEVEL)
     bench/vulkan_benchmark.cc
   )
 
-  # if CUDA is available, add CUB benchmark
-  # include(CheckLanguage)
-  # check_language(CUDA)
-  # if (CMAKE_CUDA_COMPILER)
-  #   enable_language(CUDA)
-  #   set(CMAKE_CUDA_STANDARD 17)
-  #   set(CMAKE_CUDA_STANDARD_REQUIRED True)
-  #   list(APPEND BENCH_SOURCES
-  #     bench/cuda_benchmark.cu
-  #   )
-  # endif()
+  #if CUDA is available, add CUB benchmark
+  include(CheckLanguage)
+  check_language(CUDA)
+  if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    list(APPEND BENCH_SOURCES
+      bench/cuda_benchmark.cu
+    )
+  endif()
 
   add_executable(bench ${BENCH_SOURCES})
 
-  # if (CMAKE_CUDA_COMPILER)
-  #   target_compile_definitions(bench PUBLIC BENCH_CUDA)
-  # endif()
+  set_target_properties(bench PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+  )
 
-  # if VMA is already added from parent project, skip
-  if (NOT TARGET VulkanMemoryAllocator)
-    add_subdirectory(third_party/VulkanMemoryAllocator EXCLUDE_FROM_ALL)
+  if(CMAKE_CUDA_COMPILER)
+    set_target_properties(bench PROPERTIES CUDA_ARCHITECTURES native)
+    if(MSVC)
+      target_compile_options(bench PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor /utf-8>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor -Xcompiler=/utf-8>
+      )
+      target_link_options(bench PRIVATE
+        $<$<CONFIG:Debug>:/NODEFAULTLIB:LIBCMTD>
+        $<$<NOT:$<CONFIG:Debug>>:/NODEFAULTLIB:LIBCMT>
+      )
+    endif()
+    target_compile_definitions(bench PUBLIC BENCH_CUDA)
   endif()
 
   target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES VRDX_USE_VOLK)
