@@ -97,21 +97,21 @@ constexpr int WORKGROUP_SIZE = 512;
 constexpr int PARTITION_DIVISION = 8;
 constexpr int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
 
-uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
-uint32_t Align(uint32_t a, uint32_t b) { return (a + b - 1) / b * b; }
+static uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
+static uint32_t Align(uint32_t a, uint32_t b) { return (a + b - 1) / b * b; }
 
-VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
+static VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
   return Align((4 + 4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) * sizeof(uint32_t),
                align);
 }
 
-VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) { return Align(elementCount * sizeof(uint32_t), align); }
+static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) { return Align(elementCount * sizeof(uint32_t), align); }
 
-void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-             VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer buffer,
-             VkDeviceSize offset, VkBuffer valueBuffer, VkDeviceSize valueOffset,
-             VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
-             uint32_t query);
+static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
+                    VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer buffer,
+                    VkDeviceSize offset, VkBuffer valueBuffer, VkDeviceSize valueOffset,
+                    VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
+                    uint32_t query);
 
 struct VrdxSorter_T {
   VkDevice device = VK_NULL_HANDLE;
@@ -272,8 +272,6 @@ void vrdxDestroySorter(VrdxSorter sorter) {
 
 void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
                                       VrdxSorterStorageRequirements* requirements) {
-  VkDevice device = sorter->device;
-
   auto align = sorter->minStorageBufferOffsetAlignment;
   VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
   VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
@@ -289,8 +287,6 @@ void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCoun
 
 void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
                                               VrdxSorterStorageRequirements* requirements) {
-  VkDevice device = sorter->device;
-
   auto align = sorter->minStorageBufferOffsetAlignment;
   VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
   VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
@@ -339,11 +335,11 @@ void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorte
           keysOffset, valuesBuffer, valuesOffset, storageBuffer, storageOffset, queryPool, query);
 }
 
-void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-             VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer keysBuffer,
-             VkDeviceSize keysOffset, VkBuffer valuesBuffer, VkDeviceSize valuesOffset,
-             VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
-             uint32_t query) {
+static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
+                    VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer keysBuffer,
+                    VkDeviceSize keysOffset, VkBuffer valuesBuffer, VkDeviceSize valuesOffset,
+                    VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
+                    uint32_t query) {
   VkDevice device = sorter->device;
   VkPipelineLayout pipelineLayout = sorter->pipelineLayout;
 
