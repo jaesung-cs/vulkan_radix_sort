@@ -1,164 +1,159 @@
-#include <iostream>
+#include <algorithm>
+#include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <string>
+#include <vector>
 
-#include "data_generator.h"
-#include "benchmark_base.h"
 #include "benchmark_factory.h"
+#include "benchmark_base.h"
+#include "data_generator.h"
+
+namespace {
+
+constexpr int      kWarmupRuns = 1;
+constexpr int      kTimedRuns  = 10;
+constexpr uint32_t kNMin       = 1u << 18;
+constexpr uint32_t kNMax       = 1u << 25;
+constexpr int      kNCount     = 128;
+constexpr uint32_t kNStep      = (kNMax - kNMin) / (kNCount - 1);
+
+double toMs(uint64_t ns) { return static_cast<double>(ns) / 1e6; }
+double toGItemsS(uint32_t n, uint64_t ns) {
+  return (static_cast<double>(n) / 1e9) / (static_cast<double>(ns) / 1e9);
+}
+
+uint64_t median(std::vector<uint64_t>& v) {
+  auto mid = static_cast<std::ptrdiff_t>(v.size() / 2);
+  std::nth_element(v.begin(), v.begin() + mid, v.end());
+  return v[static_cast<size_t>(mid)];
+}
+
+struct Row {
+  uint32_t n;
+  std::string sort;
+  double gpu_ms, cpu_ms;
+  double gpu_gitems_s, cpu_gitems_s;
+};
+
+bool checkCorrectness(BenchmarkBase* bench, BenchmarkBase* cpu, uint32_t n, DataGenerator& gen) {
+  auto data = gen.Generate(n);
+
+  auto r0 = bench->Sort(data.keys);
+  auto r1 = cpu->Sort(data.keys);
+  for (uint32_t i = 0; i < n; ++i) {
+    if (r0.keys[i] != r1.keys[i]) {
+      std::cerr << "Sort correctness failed at index " << i << std::endl;
+      return false;
+    }
+  }
+
+  auto r2 = bench->SortKeyValue(data.keys, data.values);
+  auto r3 = cpu->SortKeyValue(data.keys, data.values);
+  for (uint32_t i = 0; i < n; ++i) {
+    if (r2.keys[i] != r3.keys[i] || r2.values[i] != r3.values[i]) {
+      std::cerr << "SortKeyValue correctness failed at index " << i << std::endl;
+      return false;
+    }
+  }
+
+  std::cout << "Correctness check passed (N=" << n << ")" << std::endl;
+  return true;
+}
+
+Row measure(BenchmarkBase* bench, uint32_t n, const std::string& sort, DataGenerator& gen) {
+  // warmup
+  for (int i = 0; i < kWarmupRuns; ++i) {
+    auto data = gen.Generate(n);
+    if (sort == "keys")
+      bench->Sort(data.keys);
+    else
+      bench->SortKeyValue(data.keys, data.values);
+  }
+
+  std::vector<uint64_t> gpu_times, cpu_times;
+  gpu_times.reserve(kTimedRuns);
+  cpu_times.reserve(kTimedRuns);
+
+  for (int i = 0; i < kTimedRuns; ++i) {
+    auto data = gen.Generate(n);
+    BenchmarkBase::Results r;
+    if (sort == "keys")
+      r = bench->Sort(data.keys);
+    else
+      r = bench->SortKeyValue(data.keys, data.values);
+    gpu_times.push_back(r.total_time);
+    cpu_times.push_back(r.cpu_time);
+  }
+
+  uint64_t gpu_med = median(gpu_times);
+  uint64_t cpu_med = median(cpu_times);
+
+  return Row{n, sort, toMs(gpu_med), toMs(cpu_med),
+             toGItemsS(n, gpu_med), toGItemsS(n, cpu_med)};
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
-  std::cout << "vk_radix_sort benchmark" << std::endl;
-
-  if (argc != 3) {
-    std::cout << "Usage: bench <N> <type>" << std::endl;
+  if (argc < 2 || argc > 3) {
+    std::cerr << "Usage: bench <type> [output.csv]" << std::endl;
+    std::cerr << "  type: vulkan | cuda | cpu" << std::endl;
     return 1;
   }
 
-  // target: 15 GItems/s for key, 11 GItems/s for kv sort, 4.19e6 items (A100)
-  int size = std::stoi(argv[1]);
-  std::string type = argv[2];
+  std::string type = argv[1];
+  std::string csv_path = argc == 3 ? argv[2] : "results.csv";
 
+  std::unique_ptr<BenchmarkBase> bench, cpu;
   try {
-    auto benchmark = BenchmarkFactory::Create(type);
-    auto cpu_benchmark = BenchmarkFactory::Create("cpu");
-    // TODO: provide seed
-    DataGenerator data_generator;
-
-    {
-      std::cout << "================ sort ================" << std::endl;
-      auto data = data_generator.Generate(size);
-
-      auto result0 = benchmark->Sort(data.keys);
-      double perf =
-          (static_cast<double>(size) / 1e9) / (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms"
-                << " cpu: " << static_cast<double>(result0.cpu_time) / 1e6 << "ms"
-                << " (" << perf << " GItems/s)" << std::endl;
-
-      auto result1 = cpu_benchmark->Sort(data.keys);
-      for (int i = 0; i < data.keys.size(); ++i) {
-        if (result0.keys[i] != result1.keys[i]) {
-          std::cout << "wrong key at index " << i << std::endl;
-
-          int i0 = std::max(i - 5, 0);
-          int i1 = std::min<int>(i + 6, data.keys.size());
-          std::cout << "keys   (" << std::setw(6) << type << "): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << data.keys[j];
-          }
-          std::cout << std::endl;
-          std::cout << "keys   (answer): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result1.keys[j];
-          }
-          std::cout << std::endl;
-          break;
-        }
-      }
-    }
-
-    {
-      std::cout << "================ sort key value ================" << std::endl;
-      auto data = data_generator.Generate(size);
-      auto result0 = benchmark->SortKeyValue(data.keys, data.values);
-
-      double perf =
-          (static_cast<double>(size) / 1e9) / (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms"
-                << " cpu: " << static_cast<double>(result0.cpu_time) / 1e6 << "ms"
-                << " (" << perf << " GItems/s)" << std::endl;
-
-      auto result1 = cpu_benchmark->SortKeyValue(data.keys, data.values);
-      for (int i = 0; i < data.keys.size(); ++i) {
-        if (result0.keys[i] != result1.keys[i]) {
-          std::cout << "wrong key at index " << i << std::endl;
-
-          int i0 = std::max(i - 5, 0);
-          int i1 = std::min<int>(i + 6, data.keys.size());
-          std::cout << "keys   (" << std::setw(6) << type << "): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result0.keys[j];
-          }
-          std::cout << std::endl;
-          std::cout << "keys   (answer): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result1.keys[j];
-          }
-          std::cout << std::endl;
-          std::cout << "values (" << std::setw(6) << type << "): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result0.values[j];
-          }
-          std::cout << std::endl;
-          std::cout << "values (answer): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result1.values[j];
-          }
-          std::cout << std::endl;
-          break;
-        }
-      }
-
-      for (int i = 0; i < data.keys.size(); ++i) {
-        if (result0.values[i] != result1.values[i]) {
-          std::cout << "wrong value at index " << i << std::endl;
-
-          int i0 = std::max(i - 5, 0);
-          int i1 = std::min<int>(i + 6, data.keys.size());
-          std::cout << "keys   (" << std::setw(6) << type << "): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result0.keys[j];
-          }
-          std::cout << std::endl;
-          std::cout << "keys   (answer): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result1.keys[j];
-          }
-          std::cout << std::endl;
-          std::cout << "values (" << std::setw(6) << type << "): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result0.values[j];
-          }
-          std::cout << std::endl;
-          std::cout << "values (answer): ";
-          for (int j = i0; j < i1; ++j) {
-            std::cout << std::setw(9) << std::hex << result1.values[j];
-          }
-          std::cout << std::endl;
-          std::cout << std::endl;
-          break;
-        }
-      }
-
-      /*
-      for (int i = 0; i < data.keys.size(); ++i) {
-        std::cout << std::setw(8) << std::hex << result0.keys[i] << ' '
-                  << std::setw(8) << std::hex << result0.values[i] << std::endl;
-      }
-      */
-    }
-
-    {
-      std::cout << "================ sort key value speed ================" << std::endl;
-
-      for (int i = 0; i < 20; ++i) {
-        auto data = data_generator.Generate(size);
-        auto result = benchmark->SortKeyValue(data.keys, data.values);
-
-        double perf =
-            (static_cast<double>(size) / 1e9) / (static_cast<double>(result.total_time) / 1e9);
-        double cpu_perf =
-            (static_cast<double>(size) / 1e9) / (static_cast<double>(result.cpu_time) / 1e9);
-        std::cout << "[" << i << "] total time: " << static_cast<double>(result.total_time) / 1e6
-                  << "ms (" << perf << " GItems/s)"
-                  << " cpu: " << static_cast<double>(result.cpu_time) / 1e6
-                  << "ms (" << cpu_perf << " GItems/s)" << std::endl;
-      }
-    }
+    bench = BenchmarkFactory::Create(type);
+    cpu   = BenchmarkFactory::Create("cpu");
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
     return 1;
   }
 
+  DataGenerator gen;
+  std::vector<Row> rows;
+
+  for (int i = 0; i < kNCount; ++i) {
+    uint32_t n = kNMin + static_cast<uint32_t>(i) * kNStep;
+
+    if (i == 0) {
+      if (!checkCorrectness(bench.get(), cpu.get(), n, gen))
+        return 1;
+    }
+
+    for (const std::string& sort : {"keys", "kv"}) {
+      Row row = measure(bench.get(), n, sort, gen);
+      rows.push_back(row);
+
+      std::cout << "[" << std::setw(3) << i + 1 << "/" << kNCount << "]"
+                << " N=" << std::setw(9) << n
+                << " [" << std::setw(4) << sort << "]"
+                << "  gpu: " << std::fixed << std::setprecision(3) << row.gpu_ms << "ms"
+                << " (" << std::setprecision(2) << row.gpu_gitems_s << " GItems/s)"
+                << "  cpu: " << std::setprecision(3) << row.cpu_ms << "ms"
+                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)"
+                << std::endl;
+    }
+  }
+
+  std::ofstream csv(csv_path);
+  if (!csv) {
+    std::cerr << "Failed to open " << csv_path << " for writing" << std::endl;
+    return 1;
+  }
+
+  csv << "backend,n,sort,gpu_ms,cpu_ms,gpu_gitems_s,cpu_gitems_s\n";
+  for (const auto& r : rows) {
+    csv << type << "," << r.n << "," << r.sort << ","
+        << std::fixed << std::setprecision(6)
+        << r.gpu_ms << "," << r.cpu_ms << ","
+        << r.gpu_gitems_s << "," << r.cpu_gitems_s << "\n";
+  }
+
+  std::cout << "\nResults written to " << csv_path << std::endl;
   return 0;
 }

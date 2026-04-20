@@ -5,7 +5,7 @@
 #include <cstdint>
 
 class BenchmarkBase {
- protected:
+ public:
   struct Results {
     std::vector<uint32_t> keys;
     std::vector<uint32_t> values;
