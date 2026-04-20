@@ -6,7 +6,7 @@ Reduce-then-scan GPU radix sort algorithm is implemented.
 As a header-only Vulkan library, it can be easily integrated into any Vulkan-based project without additional dependencies, making it suitable for applications such as 3D Gaussian Splatting rendering.
 
 > **Note:** As of January 2025, this library was competitive with CUB Reduce-then-Scan radix sort.
-> However, benchmarking in April 2025 against CUB v3.3.0 (which now defaults to Onesweep) shows CUB is faster: 2.1× for keys-only (10.66 vs 22.40 GItems/s) and 1.3× for key-value (9.04 vs 11.68 GItems/s) at N = 2^25.
+> However, benchmarking in April 2026 against CUB v3.3.0 (which now defaults to Onesweep) shows CUB is faster: 2.1× for keys-only (10.66 vs 22.40 GItems/s) and 1.3× for key-value (9.04 vs 11.68 GItems/s) at N = 2^25.
 
 
 ## Change History
