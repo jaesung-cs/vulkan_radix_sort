@@ -100,7 +100,7 @@ VulkanBenchmark::VulkanBenchmark() {
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_family_count,
                                            queue_families.data());
 
-  for (int i = 0; i < queue_families.size(); ++i) {
+  for (size_t i = 0; i < queue_families.size(); ++i) {
     const auto& queue_family = queue_families[i];
     if ((queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT) == VK_QUEUE_COMPUTE_BIT &&
         (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) {

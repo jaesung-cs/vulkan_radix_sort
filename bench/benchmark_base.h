@@ -21,7 +21,6 @@ class BenchmarkBase {
   virtual Results SortKeyValue(const std::vector<uint32_t>& keys,
                                const std::vector<uint32_t>& values) = 0;
 
- private:
 };
 
 #endif  // VK_RADIX_SORT_BENCHMARK_BASE_H
