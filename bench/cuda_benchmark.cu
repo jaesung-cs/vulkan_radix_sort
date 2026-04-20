@@ -1,6 +1,7 @@
 #include "cuda_benchmark.h"
 
 #include <cub/cub.cuh>
+#include <chrono>
 
 CudaBenchmark::CudaBenchmark() {
   cudaStreamCreate(&stream_);
@@ -48,12 +49,14 @@ CudaBenchmark::Results CudaBenchmark::Sort(const std::vector<uint32_t> &keys) {
 
   // cub sort, measure time
   cudaStreamSynchronize(stream_);
+  auto cpu_start = std::chrono::steady_clock::now();
   cudaEventRecord(start_timestamp_, stream_);
   cub::DeviceRadixSort::SortKeys(temp_storage_, temp_storage_bytes_,
                                  static_cast<const uint32_t *>(keys_ptr_),
                                  static_cast<uint32_t *>(out_keys_ptr_), n, 0, 32, stream_);
   cudaEventRecord(end_timestamp_, stream_);
   cudaStreamSynchronize(stream_);
+  auto cpu_end = std::chrono::steady_clock::now();
 
   // GPU to CPU
   cudaMemcpy(result.keys.data(), out_keys_ptr_, n * sizeof(uint32_t), cudaMemcpyDefault);
@@ -62,6 +65,7 @@ CudaBenchmark::Results CudaBenchmark::Sort(const std::vector<uint32_t> &keys) {
   float ms;
   cudaEventElapsedTime(&ms, start_timestamp_, end_timestamp_);
   result.total_time = static_cast<uint64_t>(ms * 1e6);  // ms to ns
+  result.cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
 
   return result;
 }
@@ -92,6 +96,7 @@ CudaBenchmark::Results CudaBenchmark::SortKeyValue(const std::vector<uint32_t> &
 
   // cub sort, measure time
   cudaStreamSynchronize(stream_);
+  auto cpu_start = std::chrono::steady_clock::now();
   cudaEventRecord(start_timestamp_, stream_);
   cub::DeviceRadixSort::SortPairs(
       temp_storage_, temp_storage_bytes, static_cast<const uint32_t *>(keys_ptr_),
@@ -99,6 +104,7 @@ CudaBenchmark::Results CudaBenchmark::SortKeyValue(const std::vector<uint32_t> &
       static_cast<uint32_t *>(out_values_ptr_), n, 0, 32, stream_);
   cudaEventRecord(end_timestamp_, stream_);
   cudaStreamSynchronize(stream_);
+  auto cpu_end = std::chrono::steady_clock::now();
 
   // GPU to CPU
   cudaMemcpy(result.keys.data(), out_keys_ptr_, n * sizeof(uint32_t), cudaMemcpyDefault);
@@ -108,5 +114,6 @@ CudaBenchmark::Results CudaBenchmark::SortKeyValue(const std::vector<uint32_t> &
   float ms;
   cudaEventElapsedTime(&ms, start_timestamp_, end_timestamp_);
   result.total_time = static_cast<uint64_t>(ms * 1e6);  // ms to ns
+  result.cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
   return result;
 }

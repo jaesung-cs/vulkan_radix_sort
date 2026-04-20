@@ -9,7 +9,8 @@ class BenchmarkBase {
   struct Results {
     std::vector<uint32_t> keys;
     std::vector<uint32_t> values;
-    uint64_t total_time;  // ns
+    uint64_t total_time = 0;  // ns (GPU timestamps)
+    uint64_t cpu_time = 0;    // ns (wall clock, submit to fence signaled)
   };
 
  public:

@@ -31,8 +31,9 @@ int main(int argc, char** argv) {
       auto result0 = benchmark->Sort(data.keys);
       double perf =
           (static_cast<double>(size) / 1e9) / (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms (" << perf
-                << " GItems/s)" << std::endl;
+      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms"
+                << " cpu: " << static_cast<double>(result0.cpu_time) / 1e6 << "ms"
+                << " (" << perf << " GItems/s)" << std::endl;
 
       auto result1 = cpu_benchmark->Sort(data.keys);
       for (int i = 0; i < data.keys.size(); ++i) {
@@ -63,8 +64,9 @@ int main(int argc, char** argv) {
 
       double perf =
           (static_cast<double>(size) / 1e9) / (static_cast<double>(result0.total_time) / 1e9);
-      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms (" << perf
-                << " GItems/s)" << std::endl;
+      std::cout << "total time: " << static_cast<double>(result0.total_time) / 1e6 << "ms"
+                << " cpu: " << static_cast<double>(result0.cpu_time) / 1e6 << "ms"
+                << " (" << perf << " GItems/s)" << std::endl;
 
       auto result1 = cpu_benchmark->SortKeyValue(data.keys, data.values);
       for (int i = 0; i < data.keys.size(); ++i) {
@@ -145,8 +147,12 @@ int main(int argc, char** argv) {
 
         double perf =
             (static_cast<double>(size) / 1e9) / (static_cast<double>(result.total_time) / 1e9);
+        double cpu_perf =
+            (static_cast<double>(size) / 1e9) / (static_cast<double>(result.cpu_time) / 1e9);
         std::cout << "[" << i << "] total time: " << static_cast<double>(result.total_time) / 1e6
-                  << "ms (" << perf << " GItems/s)" << std::endl;
+                  << "ms (" << perf << " GItems/s)"
+                  << " cpu: " << static_cast<double>(result.cpu_time) / 1e6
+                  << "ms (" << cpu_perf << " GItems/s)" << std::endl;
       }
     }
   } catch (const std::exception& e) {
