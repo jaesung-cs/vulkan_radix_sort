@@ -9,6 +9,8 @@
 #include "cuda_benchmark.h"
 #endif
 
+#include "fuchsia_benchmark.h"
+
 std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(const std::string& type) {
   if (type == "cpu") return std::make_unique<CpuBenchmark>();
   if (type == "vulkan") return std::make_unique<VulkanBenchmark>();
@@ -16,6 +18,8 @@ std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(const std::string& type)
 #ifdef BENCH_CUDA
   if (type == "cuda") return std::make_unique<CudaBenchmark>();
 #endif
+
+  if (type == "fuchsia") return std::make_unique<FuchsiaBenchmark>();
 
   throw std::runtime_error("Unavailable benchmark type: " + type);
 }
