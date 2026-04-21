@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(vk_radix_sort VERSION 0.3.0 LANGUAGES CXX)
+project(vk_radix_sort VERSION 0.3.1 LANGUAGES CXX)
 
 find_package(Vulkan REQUIRED)
 find_package(Python3 REQUIRED)
@@ -128,7 +128,7 @@ if(PROJECT_IS_TOP_LEVEL)
     target_compile_definitions(bench PUBLIC BENCH_CUDA)
   endif()
 
-  target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES VRDX_USE_VOLK)
+  target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
 
   target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator)
 endif()

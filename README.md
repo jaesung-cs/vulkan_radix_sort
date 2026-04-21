@@ -105,6 +105,19 @@ This is a single header-only library.
 
 1. In exactly one source file, define `VRDX_IMPLEMENTATION` before including `vk_radix_sort.h`.
 
+    If you are using Volk, include `volk.h` before `vk_radix_sort.h` in that file so the library uses Volk's function pointer dispatch. Without it, the library falls back to the standard `<vulkan/vulkan.h>` prototypes.
+
+    ```c++
+    // With Volk
+    #include "volk.h"
+    #define VRDX_IMPLEMENTATION
+    #include "vk_radix_sort.h"
+
+    // With standard Vulkan headers
+    #define VRDX_IMPLEMENTATION
+    #include "vk_radix_sort.h"
+    ```
+
 1. Create `VkBuffer` for keys and values, with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`.
 
 1. Create `VrdxSorter`

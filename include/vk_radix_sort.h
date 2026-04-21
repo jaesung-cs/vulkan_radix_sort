@@ -1,17 +1,12 @@
 #ifndef VK_RADIX_SORT_H
 #define VK_RADIX_SORT_H
 
-#ifdef VRDX_USE_VOLK
-#include "volk.h"
-#else
-#include <vulkan/vulkan.h>
-#endif
+#include <vulkan/vulkan_core.h>
 
 #define VRDX_VERSION_MAJOR 0
 #define VRDX_VERSION_MINOR 3
-#define VRDX_VERSION_PATCH 0
-#define VRDX_VERSION \
-  ((VRDX_VERSION_MAJOR << 22) | (VRDX_VERSION_MINOR << 12) | VRDX_VERSION_PATCH)
+#define VRDX_VERSION_PATCH 1
+#define VRDX_VERSION ((VRDX_VERSION_MAJOR << 22) | (VRDX_VERSION_MINOR << 12) | VRDX_VERSION_PATCH)
 
 struct VrdxSorter_T;
 
@@ -89,6 +84,10 @@ void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorte
 
 #ifdef VRDX_IMPLEMENTATION
 #undef VRDX_IMPLEMENTATION
+
+#ifndef VOLK_H_
+#include <vulkan/vulkan.h>
+#endif
 
 const uint32_t upsweep_slang[] = {
     0x07230203, 0x00010500, 0x00280000, 0x00000085, 0x00000000, 0x00020011, 0x00000001, 0x000b000a,
@@ -2374,7 +2373,9 @@ static VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
                align);
 }
 
-static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) { return Align(elementCount * sizeof(uint32_t), align); }
+static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) {
+  return Align(elementCount * sizeof(uint32_t), align);
+}
 
 static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
                     VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer buffer,
