@@ -79,14 +79,22 @@ if(PROJECT_IS_TOP_LEVEL)
     GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
     GIT_TAG        1d8f600fd424278486eade7ed3e877c99f0846b1  # v3.3.0
   )
-
   FetchContent_MakeAvailable(volk VulkanMemoryAllocator)
+
+  FetchContent_Declare(
+    fuchsia_radix_sort
+    GIT_REPOSITORY https://github.com/jaesung-cs/fuchsia_radix_sort.git
+    GIT_TAG        4a0425cf72d59b891936bb7f4c96e2d577abd63e
+  )
+  set(FUCHSIA_RADIX_SORT_USE_VOLK ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(fuchsia_radix_sort)
 
   set(BENCH_SOURCES
     bench/bench.cc
     bench/benchmark_factory.cc
     bench/cpu_benchmark.cc
     bench/data_generator.cc
+    bench/fuchsia_benchmark.cc
     bench/vma_impl.cc
     bench/volk_impl.cc
     bench/vrdx_impl.cc
@@ -130,5 +138,5 @@ if(PROJECT_IS_TOP_LEVEL)
 
   target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
 
-  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator)
+  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator fuchsia_radix_sort)
 endif()

@@ -57,7 +57,7 @@ $ ./build/Release/bench.exe <type> [output.csv]  # Windows
 $ ./build/bench <type> [output.csv]              # Linux
 $ ./build/Release/bench.exe vulkan results.csv
 ```
-- type = one of cpu, vulkan, cuda
+- type = one of cpu, vulkan, cuda, fuchsia
 - Sweeps N linearly from 2^18 to 2^25 (128 steps), 1 warmup + 10 timed runs each
 - Writes per-N median GPU and CPU wall-clock throughput to CSV
 
@@ -77,14 +77,20 @@ Test environment: Windows, NVIDIA GeForce RTX 5080, CUDA 13.2, CUB v3.2.0 (Onesw
 
 Median throughput at N = 2^25 (33,554,432 elements):
 
-| Sort type | This library (Vulkan) | CUB Onesweep (CUDA) | Speed Ratio (CUB / Vulkan) |
+| Sort type | Vrdx (This Library) | Fuchsia | CUB Onesweep (CUDA) |
 |---|---|---|---|
-| 32-bit keys only | 10.66 GItems/s | 22.40 GItems/s | 2.10× |
-| 32-bit key-value | 9.04 GItems/s | 11.68 GItems/s | 1.29× |
+| 32-bit keys only | 10.66 GItems/s | 13.58 GItems/s (1.27×) | 22.40 GItems/s (2.10×) |
+| 32-bit key-value | 9.04 GItems/s | 5.02 GItems/s (0.56×) | 11.68 GItems/s (1.29×) |
+
+Compared to [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort), this library is 1.27× slower on keys-only sort but 1.80× faster on key-value sort.
+The performance difference in key-value sort comes from the sort strategy: Fuchsia sorts 64-bit key-value pairs as a single 64-bit key, while this library sorts key and value buffers independently, reducing memory traffic per pass.
 
 ![Benchmark Result](media/results.png)
 
-## Use as a Library with CMake
+## Integration
+This is a single header-only library. You can integrate it via CMake or by copying `include/vk_radix_sort.h` directly into your project.
+
+### CMake
 1. Add subdirectory `vulkan_radix_sort`
     ```cmake
     add_subdirectory(path/to/vulkan_radix_sort)
@@ -100,8 +106,10 @@ Median throughput at N = 2^25 (33,554,432 elements):
     target_link_libraries(my_project PRIVATE Vulkan::Vulkan vk_radix_sort)
     ```
 
+### Manual
+Copy `include/vk_radix_sort.h` into your project and include it directly.
+
 ## Usage
-This is a single header-only library.
 
 1. In exactly one source file, define `VRDX_IMPLEMENTATION` before including `vk_radix_sort.h`.
 
@@ -213,7 +221,7 @@ The cmake command runs slang compiler, generates header files into `src/generate
 - [x] Compare with CUB Reduce-then-Scan radix sort
 - [x] Compare with CUB Onesweep radix sort
 - [ ] Compare with VkRadixSort
-- [ ] Compare with Fuchsia radix sort
+- [x] Compare with Fuchsia radix sort
 - [ ] Find best `WORKGROUP_SIZE` and `PARTITION_DIVISION` for different devices.
 - [x] Support for SubgroupSize=64.
 

@@ -98,7 +98,7 @@ Row measure(BenchmarkBase* bench, uint32_t n, const std::string& sort, DataGener
 int main(int argc, char** argv) {
   if (argc < 2 || argc > 3) {
     std::cerr << "Usage: bench <type> [output.csv]" << std::endl;
-    std::cerr << "  type: vulkan | cuda | cpu" << std::endl;
+    std::cerr << "  type: vulkan | cuda | cpu | fuchsia" << std::endl;
     return 1;
   }
 
