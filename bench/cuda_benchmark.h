@@ -13,6 +13,8 @@ class CudaBenchmark : public BenchmarkBase {
   CudaBenchmark();
   ~CudaBenchmark() override;
 
+  std::string LibraryVersion() const override;
+
   Results Sort(const std::vector<uint32_t>& keys) override;
   Results SortKeyValue(const std::vector<uint32_t>& keys,
                        const std::vector<uint32_t>& values) override;

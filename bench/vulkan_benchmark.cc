@@ -43,6 +43,12 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 
 }  // namespace
 
+std::string VulkanBenchmark::LibraryVersion() const {
+  return "v" + std::to_string(VRDX_VERSION_MAJOR) + "." +
+               std::to_string(VRDX_VERSION_MINOR) + "." +
+               std::to_string(VRDX_VERSION_PATCH);
+}
+
 VulkanBenchmark::VulkanBenchmark() {
   volkInitialize();
 

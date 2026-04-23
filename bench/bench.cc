@@ -146,6 +146,9 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  std::string lib_ver = bench->LibraryVersion();
+  if (!lib_ver.empty())
+    csv << "# version: " << lib_ver << "\n";
   csv << "backend,n,sort,gpu_ms,cpu_ms,gpu_gitems_s,cpu_gitems_s\n";
   for (const auto& r : rows) {
     csv << type << "," << r.n << "," << r.sort << ","

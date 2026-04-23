@@ -1,7 +1,14 @@
 #include "cuda_benchmark.h"
 
 #include <cub/cub.cuh>
+#include <cub/version.cuh>
 #include <chrono>
+
+std::string CudaBenchmark::LibraryVersion() const {
+  return "v" + std::to_string(CUB_MAJOR_VERSION) + "." +
+               std::to_string(CUB_MINOR_VERSION) + "." +
+               std::to_string(CUB_SUBMINOR_VERSION);
+}
 
 CudaBenchmark::CudaBenchmark() {
   cudaStreamCreate(&stream_);

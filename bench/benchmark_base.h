@@ -1,6 +1,7 @@
 #ifndef VK_RADIX_SORT_BENCHMARK_BASE_H
 #define VK_RADIX_SORT_BENCHMARK_BASE_H
 
+#include <string>
 #include <vector>
 #include <cstdint>
 
@@ -16,6 +17,8 @@ class BenchmarkBase {
  public:
   BenchmarkBase() = default;
   virtual ~BenchmarkBase() = default;
+
+  virtual std::string LibraryVersion() const { return ""; }
 
   virtual Results Sort(const std::vector<uint32_t>& keys) = 0;
   virtual Results SortKeyValue(const std::vector<uint32_t>& keys,

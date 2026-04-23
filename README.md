@@ -38,7 +38,7 @@ $ ./build/bench <type> [output.csv]              # Linux
 
 Plot results:
 ```bash
-$ python tools/plot.py vulkan.csv cuda.csv results.png
+$ python tools/plot.py vulkan.csv cuda.csv --output results.png
 ```
 
 ### Results
