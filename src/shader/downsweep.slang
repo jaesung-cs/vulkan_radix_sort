@@ -13,19 +13,20 @@ RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 groupshared uint localHistogram[PARTITION_SIZE];  // (R, S=16)=4096, (P) for alias. take maximum.
 groupshared uint localHistogramSum[RADIX];
 
-// returns 0b00000....11111, where msb is id-1.
-uint4 GetExclusiveWaveMask(uint id) {
-  // clamp bit-shift right operand between 0..31 to avoid undefined behavior.
-  uint shift = (1 << bitfieldExtract(id, 0, 5)) - 1;  //  (1 << (id % 32)) - 1
-  // right shift operation on signed integer copies sign bit, use the trick for masking.
-  // (negative)     >> 31 = 111...111
-  // (non-negative) >> 31 = 000...000
-  int x = int(id) >> 5;
-  return uint4((shift & ((-1 - x) >> 31)) | ((0 - x) >> 31),  //
-               (shift & ((0 - x) >> 31)) | ((1 - x) >> 31),   //
-               (shift & ((1 - x) >> 31)) | ((2 - x) >> 31),   //
-               (shift & ((2 - x) >> 31)) | ((3 - x) >> 31),   //
-  );
+// returns 0b00000....11111, where msb is laneIndex-1.
+uint4 GetExclusiveWaveMask(uint laneIndex) {
+    uint4 mask = uint4(0, 0, 0, 0);
+    [ForceUnroll]
+    for (int i = 0; i < 4; ++i) {
+        if (laneIndex < 32) {
+            mask[i] = (1u << laneIndex) - 1u;
+            laneIndex = 0;
+        } else {
+            mask[i] = 0xFFFFFFFF;
+            laneIndex -= 32;
+        }
+    }
+    return mask;
 }
 
 uint GetBitCount(uint4 value) {

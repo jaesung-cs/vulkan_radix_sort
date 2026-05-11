@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 project(vk_radix_sort VERSION 0.3.2 LANGUAGES CXX)
 
 find_package(Vulkan REQUIRED)
+message(STATUS "Vulkan version: ${Vulkan_VERSION}")
 find_package(Python3 REQUIRED)
 include(FetchContent)
 
@@ -133,7 +134,7 @@ if(PROJECT_IS_TOP_LEVEL)
         $<$<NOT:$<CONFIG:Debug>>:/NODEFAULTLIB:LIBCMT>
       )
     endif()
-    target_compile_definitions(bench PUBLIC BENCH_CUDA)
+    #target_compile_definitions(bench PUBLIC BENCH_CUDA)
   endif()
 
   target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
