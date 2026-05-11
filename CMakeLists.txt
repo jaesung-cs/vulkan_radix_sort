@@ -134,7 +134,7 @@ if(PROJECT_IS_TOP_LEVEL)
         $<$<NOT:$<CONFIG:Debug>>:/NODEFAULTLIB:LIBCMT>
       )
     endif()
-    #target_compile_definitions(bench PUBLIC BENCH_CUDA)
+    target_compile_definitions(bench PUBLIC BENCH_CUDA)
   endif()
 
   target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
