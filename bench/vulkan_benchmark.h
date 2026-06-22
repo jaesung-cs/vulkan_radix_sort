@@ -31,6 +31,8 @@ class VulkanBenchmark : public BenchmarkBase {
   void Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, bool mapped = false);
 
  private:
+  uint32_t min_buffer_alignment_ = 16;
+
   VkInstance instance_ = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
   VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;

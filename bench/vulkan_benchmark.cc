@@ -99,6 +99,11 @@ VulkanBenchmark::VulkanBenchmark() {
   vkEnumeratePhysicalDevices(instance_, &physical_device_count, physical_devices.data());
   physical_device_ = physical_devices[0];
 
+  VkPhysicalDeviceProperties device_properties;
+  vkGetPhysicalDeviceProperties(physical_device_, &device_properties);
+  min_buffer_alignment_ =
+      static_cast<uint32_t>(device_properties.limits.minStorageBufferOffsetAlignment);
+
   // find graphics queue
   uint32_t queue_family_count = 0;
   vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &queue_family_count, NULL);
@@ -237,7 +242,7 @@ void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsag
 
 VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys) {
   uint32_t element_count = keys.size();
-  uint32_t inout_size = Align(element_count * sizeof(uint32_t), 16);
+  uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
   Reallocate(&staging_, inout_size,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
@@ -316,11 +321,11 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
 VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_t>& keys,
                                                        const std::vector<uint32_t>& values) {
   uint32_t element_count = keys.size();
-  uint32_t inout_size = Align(element_count * sizeof(uint32_t), 16);
+  uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
-  Reallocate(&staging_, 2 * inout_size + 16,
+  Reallocate(&staging_, 2 * inout_size + min_buffer_alignment_,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-  Reallocate(&keys_, 2 * inout_size + 16,
+  Reallocate(&keys_, 2 * inout_size + min_buffer_alignment_,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
