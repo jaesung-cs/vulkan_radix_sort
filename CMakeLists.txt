@@ -7,36 +7,12 @@ message(STATUS "Vulkan version: ${Vulkan_VERSION}")
 find_package(Python3 REQUIRED)
 include(FetchContent)
 
-# find slangc
-string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
-message(STATUS "slangc executable: ${SLANGC_EXECUTABLE}")
+option(VRDX_SLANGC_FROM_SDK "Use slangc from the Vulkan SDK instead of downloading a pinned release" OFF)
+include(cmake/Slangc.cmake)
+fetch_slangc("2026.11")
 
 # shaders
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
-
-# build_shader(SHADER OUTPUT DEFINE...)
-function(build_shader)
-  list(POP_FRONT ARGV SHADER OUTPUT)
-  list(TRANSFORM ARGV PREPEND "-D" OUTPUT_VARIABLE DEFINES)
-
-  get_filename_component(SHADER ${SHADER} ABSOLUTE)
-
-  add_custom_target(${OUTPUT} ALL
-    COMMAND
-      ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
-      -target spirv
-      -fvk-t-shift 0 0
-      -fvk-u-shift 0 0
-      -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
-      ${DEFINES}
-      ${SHADER}
-    DEPENDS
-      ${SHADER}
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/shader/constants.slang
-    COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h"
-    VERBATIM
-  )
-endfunction()
 
 # header-only library
 add_library(vk_radix_sort INTERFACE)
