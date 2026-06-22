@@ -21,7 +21,7 @@ struct VrdxSorterCreateInfo {
   VkPipelineCache pipelineCache;
 };
 
-void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSorter);
+VkResult vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSorter);
 
 void vrdxDestroySorter(VrdxSorter sorter);
 
@@ -138,9 +138,24 @@ struct PushConstants {
   uint32_t pass;
 };
 
-void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSorter) {
+VkResult vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSorter) {
   VkDevice device = pCreateInfo->device;
   VkPipelineCache pipelineCache = pCreateInfo->pipelineCache;
+  VkResult result;
+
+  VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+  VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+  VkShaderModule shaderModules[4] = {};
+  VkPipeline pipelines[4] = {};
+
+  // Destroys any resources created so far; safe to call at any point because all handles are
+  // initialized to VK_NULL_HANDLE and Vulkan destroy functions accept VK_NULL_HANDLE as a no-op.
+  auto cleanup = [&]() {
+    for (auto pipeline : pipelines) vkDestroyPipeline(device, pipeline, NULL);
+    for (auto shaderModule : shaderModules) vkDestroyShaderModule(device, shaderModule, NULL);
+    vkDestroyPipelineLayout(device, pipelineLayout, NULL);
+    vkDestroyDescriptorSetLayout(device, descriptorSetLayout, NULL);
+  };
 
   // descriptor layout
   constexpr int bindingCount = 7;
@@ -152,13 +167,17 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
     bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   }
 
-  VkDescriptorSetLayout descriptorSetLayout;
   VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo = {
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   descriptorSetLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
   descriptorSetLayoutInfo.bindingCount = bindingCount;
   descriptorSetLayoutInfo.pBindings = bindings;
-  vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout);
+  result =
+      vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout);
+  if (result != VK_SUCCESS) {
+    cleanup();
+    return result;
+  }
 
   // pipeline layout
   VkPushConstantRange pushConstants = {};
@@ -166,90 +185,58 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   pushConstants.offset = 0;
   pushConstants.size = sizeof(PushConstants);
 
-  VkPipelineLayout pipelineLayout;
   VkPipelineLayoutCreateInfo pipelineLayoutInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
   pipelineLayoutInfo.setLayoutCount = 1;
   pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstants;
-  vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout);
-
-  // pipelines
-  VkPipeline upsweepPipeline;
-  {
-    VkShaderModule shaderModule;
-    VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    shaderModuleInfo.codeSize = sizeof(upsweep_slang);
-    shaderModuleInfo.pCode = upsweep_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
-
-    VkComputePipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfo.stage.module = shaderModule;
-    pipelineInfo.stage.pName = "main";
-    pipelineInfo.layout = pipelineLayout;
-
-    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &upsweepPipeline);
-
-    vkDestroyShaderModule(device, shaderModule, NULL);
+  result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout);
+  if (result != VK_SUCCESS) {
+    cleanup();
+    return result;
   }
 
-  VkPipeline spinePipeline;
-  {
-    VkShaderModule shaderModule;
+  // pipelines: all 4 at once so the driver can parallelize compilation
+  const uint32_t* shaderCodes[4] = {
+      upsweep_slang,
+      spine_slang,
+      downsweep_slang,
+      downsweep_key_value_slang,
+  };
+  const size_t shaderSizes[4] = {
+      sizeof(upsweep_slang),
+      sizeof(spine_slang),
+      sizeof(downsweep_slang),
+      sizeof(downsweep_key_value_slang),
+  };
+
+  for (int i = 0; i < 4; ++i) {
     VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    shaderModuleInfo.codeSize = sizeof(spine_slang);
-    shaderModuleInfo.pCode = spine_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModule);
-
-    VkComputePipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfo.stage.module = shaderModule;
-    pipelineInfo.stage.pName = "main";
-    pipelineInfo.layout = pipelineLayout;
-
-    vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &spinePipeline);
-
-    vkDestroyShaderModule(device, shaderModule, NULL);
+    shaderModuleInfo.codeSize = shaderSizes[i];
+    shaderModuleInfo.pCode = shaderCodes[i];
+    result = vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[i]);
+    if (result != VK_SUCCESS) {
+      cleanup();
+      return result;
+    }
   }
 
-  VkPipeline downsweepPipeline;
-  VkPipeline downsweepKeyValuePipeline;
-  {
-    VkShaderModule shaderModules[2];
-    VkShaderModuleCreateInfo shaderModuleInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    shaderModuleInfo.codeSize = sizeof(downsweep_slang);
-    shaderModuleInfo.pCode = downsweep_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[0]);
-
-    shaderModuleInfo.codeSize = sizeof(downsweep_key_value_slang);
-    shaderModuleInfo.pCode = downsweep_key_value_slang;
-    vkCreateShaderModule(device, &shaderModuleInfo, NULL, &shaderModules[1]);
-
-    VkComputePipelineCreateInfo pipelineInfos[2];
-    pipelineInfos[0] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    pipelineInfos[0].stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    pipelineInfos[0].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfos[0].stage.module = shaderModules[0];
-    pipelineInfos[0].stage.pName = "main";
-    pipelineInfos[0].layout = pipelineLayout;
-
-    pipelineInfos[1] = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    pipelineInfos[1].stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    pipelineInfos[1].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipelineInfos[1].stage.module = shaderModules[1];
-    pipelineInfos[1].stage.pName = "main";
-    pipelineInfos[1].layout = pipelineLayout;
-
-    VkPipeline pipelines[2];
-    vkCreateComputePipelines(device, pipelineCache, 2, pipelineInfos, NULL, pipelines);
-    downsweepPipeline = pipelines[0];
-    downsweepKeyValuePipeline = pipelines[1];
-
-    for (auto shaderModule : shaderModules) vkDestroyShaderModule(device, shaderModule, NULL);
+  VkComputePipelineCreateInfo pipelineInfos[4] = {};
+  for (int i = 0; i < 4; ++i) {
+    pipelineInfos[i].sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfos[i].stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipelineInfos[i].stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineInfos[i].stage.module = shaderModules[i];
+    pipelineInfos[i].stage.pName = "main";
+    pipelineInfos[i].layout = pipelineLayout;
   }
+
+  result = vkCreateComputePipelines(device, pipelineCache, 4, pipelineInfos, NULL, pipelines);
+  if (result != VK_SUCCESS) {
+    cleanup();
+    return result;
+  }
+  for (auto shaderModule : shaderModules) vkDestroyShaderModule(device, shaderModule, NULL);
 
   auto property = VkPhysicalDeviceProperties{};
   vkGetPhysicalDeviceProperties(pCreateInfo->physicalDevice, &property);
@@ -268,14 +255,17 @@ void vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* pSort
   (*pSorter)->descriptorSetLayout = descriptorSetLayout;
   (*pSorter)->pipelineLayout = pipelineLayout;
 
-  (*pSorter)->upsweepPipeline = upsweepPipeline;
-  (*pSorter)->spinePipeline = spinePipeline;
-  (*pSorter)->downsweepPipeline = downsweepPipeline;
-  (*pSorter)->downsweepKeyValuePipeline = downsweepKeyValuePipeline;
+  (*pSorter)->upsweepPipeline = pipelines[0];
+  (*pSorter)->spinePipeline = pipelines[1];
+  (*pSorter)->downsweepPipeline = pipelines[2];
+  (*pSorter)->downsweepKeyValuePipeline = pipelines[3];
   (*pSorter)->minStorageBufferOffsetAlignment = property.limits.minStorageBufferOffsetAlignment;
+
+  return VK_SUCCESS;
 }
 
 void vrdxDestroySorter(VrdxSorter sorter) {
+  if (!sorter) return;
   vkDestroyPipeline(sorter->device, sorter->upsweepPipeline, NULL);
   vkDestroyPipeline(sorter->device, sorter->spinePipeline, NULL);
   vkDestroyPipeline(sorter->device, sorter->downsweepPipeline, NULL);
