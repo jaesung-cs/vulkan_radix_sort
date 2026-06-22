@@ -30,6 +30,9 @@ function(build_shader)
       -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
       ${DEFINES}
       ${SHADER}
+    DEPENDS
+      ${SHADER}
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/shader/constants.slang
     COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h"
     VERBATIM
   )
