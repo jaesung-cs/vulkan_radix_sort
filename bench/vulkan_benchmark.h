@@ -18,7 +18,7 @@ class VulkanBenchmark : public BenchmarkBase {
   };
 
  public:
-  VulkanBenchmark();
+  explicit VulkanBenchmark(bool validation = false);
   ~VulkanBenchmark() override;
 
   std::string LibraryVersion() const override;

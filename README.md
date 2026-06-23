@@ -30,11 +30,12 @@ $ cmake --build build --config Release -j
 ### Run
 
 ```bash
-$ ./build/Release/bench.exe <type> [output.csv]  # Windows
-$ ./build/bench <type> [output.csv]              # Linux
+$ ./build/Release/bench.exe <type> [-o output.csv] [--validation]  # Windows
+$ ./build/bench <type> [-o output.csv] [--validation]              # Linux
 ```
 
 - `type`: `cpu`, `vulkan`, `cuda`, `fuchsia`
+- `--validation`: enable Vulkan validation layers (disabled by default to avoid benchmark overhead)
 - Sweeps N from 2^18 to 2^25 (128 steps), 1 warmup + 10 timed runs each
 - Outputs median GPU and CPU throughput to CSV
 

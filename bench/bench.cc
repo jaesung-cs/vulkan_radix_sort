@@ -1,9 +1,10 @@
-#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include <cxxopts.hpp>
 
 #include "benchmark_factory.h"
 #include "benchmark_base.h"
@@ -11,12 +12,12 @@
 
 namespace {
 
-constexpr int      kWarmupRuns = 1;
-constexpr int      kTimedRuns  = 10;
-constexpr uint32_t kNMin       = 1u << 18;
-constexpr uint32_t kNMax       = 1u << 25;
-constexpr int      kNCount     = 128;
-constexpr uint32_t kNStep      = (kNMax - kNMin) / (kNCount - 1);
+constexpr int kWarmupRuns = 1;
+constexpr int kTimedRuns = 10;
+constexpr uint32_t kNMin = 1u << 18;
+constexpr uint32_t kNMax = 1u << 25;
+constexpr int kNCount = 128;
+constexpr uint32_t kNStep = (kNMax - kNMin) / (kNCount - 1);
 
 double toMs(uint64_t ns) { return static_cast<double>(ns) / 1e6; }
 double toGItemsS(uint32_t n, uint64_t ns) {
@@ -89,26 +90,46 @@ Row measure(BenchmarkBase* bench, uint32_t n, const std::string& sort, DataGener
   uint64_t gpu_med = median(gpu_times);
   uint64_t cpu_med = median(cpu_times);
 
-  return Row{n, sort, toMs(gpu_med), toMs(cpu_med),
-             toGItemsS(n, gpu_med), toGItemsS(n, cpu_med)};
+  return Row{n, sort, toMs(gpu_med), toMs(cpu_med), toGItemsS(n, gpu_med), toGItemsS(n, cpu_med)};
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 2 || argc > 3) {
-    std::cerr << "Usage: bench <type> [output.csv]" << std::endl;
-    std::cerr << "  type: vulkan | cuda | cpu | fuchsia" << std::endl;
+  cxxopts::Options options("bench", "Vulkan radix sort benchmark");
+  options.add_options()("type", "Backend type", cxxopts::value<std::string>())(
+      "o,output", "Output CSV file", cxxopts::value<std::string>()->default_value("results.csv"))(
+      "validation", "Enable Vulkan validation layers")("h,help", "Print usage");
+  options.parse_positional({"type"});
+  options.positional_help("<type>");
+  options.custom_help(
+      "[options]\n\nTypes:\n"
+      "  vulkan    Vulkan (this library)\n"
+      "  fuchsia   Fuchsia radix sort (Vulkan)\n"
+      "  cuda      CUB Onesweep (CUDA)\n"
+      "  cpu       std::sort reference\n");
+
+  cxxopts::ParseResult result;
+  try {
+    result = options.parse(argc, argv);
+  } catch (const cxxopts::exceptions::exception& e) {
+    std::cerr << e.what() << "\n" << options.help() << std::endl;
     return 1;
   }
 
-  std::string type = argv[1];
-  std::string csv_path = argc == 3 ? argv[2] : "results.csv";
+  if (result.count("help") || !result.count("type")) {
+    std::cout << options.help() << std::endl;
+    return result.count("help") ? 0 : 1;
+  }
+
+  std::string type = result["type"].as<std::string>();
+  std::string csv_path = result["output"].as<std::string>();
+  bool validation = result.count("validation") > 0;
 
   std::unique_ptr<BenchmarkBase> bench, cpu;
   try {
-    bench = BenchmarkFactory::Create(type);
-    cpu   = BenchmarkFactory::Create("cpu");
+    bench = BenchmarkFactory::Create(type, validation);
+    cpu = BenchmarkFactory::Create("cpu");
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
     return 1;
@@ -121,8 +142,7 @@ int main(int argc, char** argv) {
     uint32_t n = kNMin + static_cast<uint32_t>(i) * kNStep;
 
     if (i == 0) {
-      if (!checkCorrectness(bench.get(), cpu.get(), n, gen))
-        return 1;
+      if (!checkCorrectness(bench.get(), cpu.get(), n, gen)) return 1;
     }
 
     for (const std::string& sort : {"keys", "kv"}) {
@@ -130,13 +150,11 @@ int main(int argc, char** argv) {
       rows.push_back(row);
 
       std::cout << "[" << std::setw(3) << i + 1 << "/" << kNCount << "]"
-                << " N=" << std::setw(9) << n
-                << " [" << std::setw(4) << sort << "]"
+                << " N=" << std::setw(9) << n << " [" << std::setw(4) << sort << "]"
                 << "  gpu: " << std::fixed << std::setprecision(3) << row.gpu_ms << "ms"
                 << " (" << std::setprecision(2) << row.gpu_gitems_s << " GItems/s)"
                 << "  cpu: " << std::setprecision(3) << row.cpu_ms << "ms"
-                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)"
-                << std::endl;
+                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)" << std::endl;
     }
   }
 
@@ -147,14 +165,11 @@ int main(int argc, char** argv) {
   }
 
   std::string lib_ver = bench->LibraryVersion();
-  if (!lib_ver.empty())
-    csv << "# version: " << lib_ver << "\n";
+  if (!lib_ver.empty()) csv << "# version: " << lib_ver << "\n";
   csv << "backend,n,sort,gpu_ms,cpu_ms,gpu_gitems_s,cpu_gitems_s\n";
   for (const auto& r : rows) {
-    csv << type << "," << r.n << "," << r.sort << ","
-        << std::fixed << std::setprecision(6)
-        << r.gpu_ms << "," << r.cpu_ms << ","
-        << r.gpu_gitems_s << "," << r.cpu_gitems_s << "\n";
+    csv << type << "," << r.n << "," << r.sort << "," << std::fixed << std::setprecision(6)
+        << r.gpu_ms << "," << r.cpu_ms << "," << r.gpu_gitems_s << "," << r.cpu_gitems_s << "\n";
   }
 
   std::cout << "\nResults written to " << csv_path << std::endl;

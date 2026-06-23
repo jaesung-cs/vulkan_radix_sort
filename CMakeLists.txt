@@ -69,6 +69,13 @@ if(PROJECT_IS_TOP_LEVEL)
   set(FUCHSIA_RADIX_SORT_USE_VOLK ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(fuchsia_radix_sort)
 
+  FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+    GIT_TAG        44380e5a44706ab7347f400698c703eb2a196202  # v3.3.1
+  )
+  FetchContent_MakeAvailable(cxxopts)
+
   set(BENCH_SOURCES
     bench/bench.cc
     bench/benchmark_factory.cc
@@ -118,5 +125,5 @@ if(PROJECT_IS_TOP_LEVEL)
 
   target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
 
-  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator fuchsia_radix_sort)
+  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator fuchsia_radix_sort cxxopts::cxxopts)
 endif()

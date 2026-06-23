@@ -11,9 +11,9 @@
 
 #include "fuchsia_benchmark.h"
 
-std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(const std::string& type) {
+std::unique_ptr<BenchmarkBase> BenchmarkFactory::Create(const std::string& type, bool validation) {
   if (type == "cpu") return std::make_unique<CpuBenchmark>();
-  if (type == "vulkan") return std::make_unique<VulkanBenchmark>();
+  if (type == "vulkan") return std::make_unique<VulkanBenchmark>(validation);
 
 #ifdef BENCH_CUDA
   if (type == "cuda") return std::make_unique<CudaBenchmark>();
