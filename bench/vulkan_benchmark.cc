@@ -139,8 +139,13 @@ VulkanBenchmark::VulkanBenchmark(bool validation) {
 #endif
   };
 
+  VkPhysicalDeviceVulkan13Features features13 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+  features13.synchronization2 = VK_TRUE;
+
   VkPhysicalDeviceVulkan14Features features14 = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+  features14.pNext = &features13;
   features14.pushDescriptor = VK_TRUE;
 
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};

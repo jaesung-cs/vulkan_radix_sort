@@ -381,12 +381,16 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
   // reset global histogram. partition histogram is set by shader.
   vkCmdFillBuffer(commandBuffer, storageBuffer, histogramOffset, 4 * RADIX * sizeof(uint32_t), 0);
 
-  VkMemoryBarrier memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-  memoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                       NULL);
+  VkMemoryBarrier2 memoryBarrier2 = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+  VkDependencyInfo depInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  depInfo.memoryBarrierCount = 1;
+  depInfo.pMemoryBarriers = &memoryBarrier2;
+
+  memoryBarrier2.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+  memoryBarrier2.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+  memoryBarrier2.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  memoryBarrier2.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+  vkCmdPipelineBarrier2(commandBuffer, &depInfo);
 
   if (queryPool) {
     vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, queryPool, query + 1);
@@ -449,12 +453,12 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
     }
 
     // spine
-    memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                         NULL);
+    memoryBarrier2 = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    memoryBarrier2.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    memoryBarrier2.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    memoryBarrier2.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    memoryBarrier2.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    vkCmdPipelineBarrier2(commandBuffer, &depInfo);
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, sorter->spinePipeline);
 
@@ -466,12 +470,12 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
     }
 
     // downsweep
-    memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                         NULL);
+    memoryBarrier2 = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    memoryBarrier2.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    memoryBarrier2.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+    memoryBarrier2.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    memoryBarrier2.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    vkCmdPipelineBarrier2(commandBuffer, &depInfo);
 
     if (valuesBuffer) {
       vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -488,12 +492,12 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
     }
 
     if (i < 3) {
-      memoryBarrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-      memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memoryBarrier, 0, NULL, 0,
-                           NULL);
+      memoryBarrier2 = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+      memoryBarrier2.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      memoryBarrier2.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+      memoryBarrier2.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      memoryBarrier2.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      vkCmdPipelineBarrier2(commandBuffer, &depInfo);
     }
   }
 
