@@ -25,7 +25,16 @@ if __name__ == "__main__":
   except Exception:
     version_line = os.path.basename(argv[0])
 
-  proc = subprocess.run(argv, check=True, env=os.environ.copy(), capture_output=True)
+  cmd_str = " ".join(f'"{a}"' if " " in a else a for a in argv)
+  try:
+    proc = subprocess.run(argv, check=True, env=os.environ.copy(), capture_output=True)
+  except subprocess.CalledProcessError as e:
+    print(f"\n--- slangc command ---\n{cmd_str}\n", file=sys.stderr)
+    if e.stdout:
+      print(f"--- stdout ---\n{e.stdout.decode()}", file=sys.stderr)
+    if e.stderr:
+      print(f"--- stderr ---\n{e.stderr.decode()}", file=sys.stderr)
+    sys.exit(e.returncode)
   stdout, stderr = proc.stdout, proc.stderr
 
   if not os.path.exists(path):
