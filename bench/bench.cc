@@ -35,6 +35,7 @@ struct Row {
   std::string sort;
   double gpu_ms, cpu_ms;
   double gpu_gitems_s, cpu_gitems_s;
+  double upsweep_ms, spine_ms, downsweep_ms;  // summed across 4 passes; 0 for non-Vulkan
 };
 
 bool checkCorrectness(BenchmarkBase* bench, BenchmarkBase* cpu, uint32_t n, DataGenerator& gen) {
@@ -72,9 +73,12 @@ Row measure(BenchmarkBase* bench, uint32_t n, const std::string& sort, DataGener
       bench->SortKeyValue(data.keys, data.values);
   }
 
-  std::vector<uint64_t> gpu_times, cpu_times;
+  std::vector<uint64_t> gpu_times, cpu_times, upsweep_times, spine_times, downsweep_times;
   gpu_times.reserve(kTimedRuns);
   cpu_times.reserve(kTimedRuns);
+  upsweep_times.reserve(kTimedRuns);
+  spine_times.reserve(kTimedRuns);
+  downsweep_times.reserve(kTimedRuns);
 
   for (int i = 0; i < kTimedRuns; ++i) {
     auto data = gen.Generate(n);
@@ -85,12 +89,26 @@ Row measure(BenchmarkBase* bench, uint32_t n, const std::string& sort, DataGener
       r = bench->SortKeyValue(data.keys, data.values);
     gpu_times.push_back(r.total_time);
     cpu_times.push_back(r.cpu_time);
+    upsweep_times.push_back(r.upsweep_ns);
+    spine_times.push_back(r.spine_ns);
+    downsweep_times.push_back(r.downsweep_ns);
   }
 
   uint64_t gpu_med = median(gpu_times);
   uint64_t cpu_med = median(cpu_times);
+  uint64_t up_med = median(upsweep_times);
+  uint64_t sp_med = median(spine_times);
+  uint64_t dn_med = median(downsweep_times);
 
-  return Row{n, sort, toMs(gpu_med), toMs(cpu_med), toGItemsS(n, gpu_med), toGItemsS(n, cpu_med)};
+  return Row{n,
+             sort,
+             toMs(gpu_med),
+             toMs(cpu_med),
+             toGItemsS(n, gpu_med),
+             toGItemsS(n, cpu_med),
+             toMs(up_med),
+             toMs(sp_med),
+             toMs(dn_med)};
 }
 
 }  // namespace
@@ -99,7 +117,8 @@ int main(int argc, char** argv) {
   cxxopts::Options options("bench", "Vulkan radix sort benchmark");
   options.add_options()("type", "Backend type", cxxopts::value<std::string>())(
       "o,output", "Output CSV file", cxxopts::value<std::string>()->default_value("results.csv"))(
-      "validation", "Enable Vulkan validation layers")("h,help", "Print usage");
+      "validation", "Enable Vulkan validation layers")(
+      "no-verify", "Skip correctness check and proceed to benchmarking")("h,help", "Print usage");
   options.parse_positional({"type"});
   options.positional_help("<type>");
   options.custom_help(
@@ -125,6 +144,7 @@ int main(int argc, char** argv) {
   std::string type = result["type"].as<std::string>();
   std::string csv_path = result["output"].as<std::string>();
   bool validation = result.count("validation") > 0;
+  bool no_verify = result.count("no-verify") > 0;
 
   std::unique_ptr<BenchmarkBase> bench, cpu;
   try {
@@ -141,7 +161,7 @@ int main(int argc, char** argv) {
   for (int i = 0; i < kNCount; ++i) {
     uint32_t n = kNMin + static_cast<uint32_t>(i) * kNStep;
 
-    if (i == 0) {
+    if (i == 0 && !no_verify) {
       if (!checkCorrectness(bench.get(), cpu.get(), n, gen)) return 1;
     }
 
@@ -154,7 +174,17 @@ int main(int argc, char** argv) {
                 << "  gpu: " << std::fixed << std::setprecision(3) << row.gpu_ms << "ms"
                 << " (" << std::setprecision(2) << row.gpu_gitems_s << " GItems/s)"
                 << "  cpu: " << std::setprecision(3) << row.cpu_ms << "ms"
-                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)" << std::endl;
+                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)";
+      if (row.upsweep_ms > 0 || row.spine_ms > 0 || row.downsweep_ms > 0) {
+        auto pct = [&](double ms) -> int {
+          return row.gpu_ms > 0 ? static_cast<int>(ms / row.gpu_ms * 100 + 0.5) : 0;
+        };
+        std::cout << std::fixed << std::setprecision(3) << "  [up=" << row.upsweep_ms << "ms("
+                  << pct(row.upsweep_ms) << "%)"
+                  << " sp=" << row.spine_ms << "ms(" << pct(row.spine_ms) << "%)"
+                  << " dn=" << row.downsweep_ms << "ms(" << pct(row.downsweep_ms) << "%)" << "]";
+      }
+      std::cout << std::endl;
     }
   }
 

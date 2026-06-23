@@ -106,6 +106,7 @@ VulkanBenchmark::VulkanBenchmark(bool validation) {
   vkGetPhysicalDeviceProperties(physical_device_, &device_properties);
   min_buffer_alignment_ =
       static_cast<uint32_t>(device_properties.limits.minStorageBufferOffsetAlignment);
+  timestamp_period_ = device_properties.limits.timestampPeriod;
 
   // find graphics queue
   uint32_t queue_family_count = 0;
@@ -319,12 +320,21 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
                         timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                         VK_QUERY_RESULT_64_BIT);
 
+  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+    return static_cast<uint64_t>(ticks * timestamp_period_);
+  };
+
   Results result;
   result.keys.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
-  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
+  result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
+  for (int pass = 0; pass < 4; ++pass) {
+    result.upsweep_ns   += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+    result.spine_ns     += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+    result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+  }
   return result;
 }
 
@@ -402,13 +412,22 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
                         timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                         VK_QUERY_RESULT_64_BIT);
 
+  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+    return static_cast<uint64_t>(ticks * timestamp_period_);
+  };
+
   Results result;
   result.keys.resize(element_count);
   result.values.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
   std::memcpy(result.values.data(), staging_.map + inout_size, element_count * sizeof(uint32_t));
-  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
+  result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
+  for (int pass = 0; pass < 4; ++pass) {
+    result.upsweep_ns   += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+    result.spine_ns     += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+    result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+  }
   return result;
 }

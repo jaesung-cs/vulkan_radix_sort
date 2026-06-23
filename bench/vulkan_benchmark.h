@@ -32,6 +32,7 @@ class VulkanBenchmark : public BenchmarkBase {
 
  private:
   uint32_t min_buffer_alignment_ = 16;
+  float timestamp_period_ = 1.f;
 
   VkInstance instance_ = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;

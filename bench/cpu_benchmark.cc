@@ -23,6 +23,7 @@ CpuBenchmark::Results CpuBenchmark::Sort(const std::vector<uint32_t>& keys) {
   std::sort(result.keys.begin(), result.keys.end());
   auto end = GetTimestamp();
   result.total_time = end - start;
+  result.cpu_time = result.total_time;
   return result;
 }
 
@@ -47,5 +48,6 @@ CpuBenchmark::Results CpuBenchmark::SortKeyValue(const std::vector<uint32_t>& ke
     result.values.push_back(values[indices[i]]);
   }
   result.total_time = end - start;
+  result.cpu_time = result.total_time;
   return result;
 }
