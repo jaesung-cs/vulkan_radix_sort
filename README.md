@@ -9,6 +9,7 @@ Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan
 
 - `VulkanSDK >= 1.4.328.1` — download from https://vulkan.lunarg.com/ (push descriptor requires >= 1.4; >= 1.4.328.1 for macOS)
 - `cmake >= 3.24`
+- Vulkan 1.3+ device with `pushDescriptor` and `synchronization2` enabled (see [Usage](#usage))
 
 `slangc` v2026.11 is downloaded automatically at configure time. To use the Vulkan SDK's `slangc` instead:
 
@@ -30,12 +31,13 @@ $ cmake --build build --config Release -j
 ### Run
 
 ```bash
-$ ./build/Release/bench.exe <type> [-o output.csv] [--validation]  # Windows
-$ ./build/bench <type> [-o output.csv] [--validation]              # Linux
+$ ./build/Release/bench.exe <type> [-o output.csv] [--validation] [--no-verify]  # Windows
+$ ./build/bench <type> [-o output.csv] [--validation] [--no-verify]              # Linux
 ```
 
 - `type`: `cpu`, `vulkan`, `cuda`, `fuchsia`
 - `--validation`: enable Vulkan validation layers (disabled by default to avoid benchmark overhead)
+- `--no-verify`: skip correctness check and proceed directly to benchmarking
 - Sweeps N from 2^18 to 2^25 (128 steps), 1 warmup + 10 timed runs each
 - Outputs median GPU and CPU throughput to CSV
 
@@ -98,6 +100,22 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
     // With standard Vulkan headers
     #define VRDX_IMPLEMENTATION
     #include "vk_radix_sort.h"
+    ```
+
+1. Enable the required features when creating the `VkDevice`:
+
+    ```c++
+    VkPhysicalDeviceVulkan13Features features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    features13.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceVulkan14Features features14 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+    features14.pNext = &features13;
+    features14.pushDescriptor = VK_TRUE;
+
+    VkDeviceCreateInfo deviceInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    deviceInfo.pNext = &features14;
+    // ...
+    vkCreateDevice(physicalDevice, &deviceInfo, nullptr, &device);
     ```
 
 1. Create `VkBuffer` for keys and values with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`.
