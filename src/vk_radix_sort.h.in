@@ -405,7 +405,7 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
     buffers[0] = {storageBuffer, elementCountOffset, sizeof(elementCount)};
     buffers[1] = {storageBuffer, histogramOffset, sizeof(uint32_t) * 4 * RADIX};
     buffers[2] = {storageBuffer, histogramOffset + sizeof(uint32_t) * 4 * RADIX,
-                  VK_WHOLE_SIZE};  // TODO: get exact buffer size
+                  sizeof(uint32_t) * partitionCount * RADIX};
     buffers[3] = {keysBuffer, keysOffset, inoutSize};
     buffers[4] = {storageBuffer, inoutOffset, inoutSize};
     if (valuesBuffer) {
