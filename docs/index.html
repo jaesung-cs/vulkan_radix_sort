@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Radix Sort — Interactive Demo</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+<header>
+  <h1>Radix Sort — Interactive Demo</h1>
+  <p>Step through the reduce-then-scan algorithm with adjustable RADIX, partition size, and key count.</p>
+  <div class="links">
+    <a href="https://github.com/jaesung-cs/vulkan_radix_sort">GitHub</a>
+  </div>
+</header>
+
+<main>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label>RADIX</label>
+      <select id="radix">
+        <option value="4" selected>4  (2 bits/pass)</option>
+        <option value="8">8  (3 bits/pass)</option>
+        <option value="16">16 (4 bits/pass)</option>
+      </select>
+    </div>
+    <div class="ctrl">
+      <label>Keys (N) &nbsp;<span class="val" id="nval">16</span></label>
+      <input type="range" id="nkeys" min="4" max="32" value="32" step="1">
+    </div>
+    <div class="ctrl">
+      <label>Partition size &nbsp;<span class="val" id="psval">4</span></label>
+      <input type="range" id="psize" min="2" max="16" value="6" step="1">
+    </div>
+    <div class="ctrl">
+      <label>Seed</label>
+      <input type="number" id="seed" value="42" min="0" max="9999" style="width:72px">
+    </div>
+  </div>
+
+  <div id="app"></div>
+
+</main>
+
+<script>
+// ── Seeded RNG (xorshift32) ─────────────────────────────────────────────────
+function rng(seed) {
+  let s = (seed >>> 0) || 1;
+  return () => { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return s >>> 0; };
+}
+
+// ── Core algorithm ──────────────────────────────────────────────────────────
+function digit(key, pass, log2R) {
+  return (key >>> (pass * log2R)) & ((1 << log2R) - 1);
+}
+
+function runPass(keys, pass, log2R, PS) {
+  const R = 1 << log2R, N = keys.length, P = Math.ceil(N / PS);
+
+  // Upsweep
+  const pH = Array.from({length: P}, () => new Int32Array(R));
+  const gH = new Int32Array(R);
+  for (let p = 0; p < P; p++)
+    for (let i = p * PS; i < Math.min((p+1)*PS, N); i++) {
+      const d = digit(keys[i], pass, log2R);
+      pH[p][d]++; gH[d]++;
+    }
+
+  // Spine — global exclusive prefix sum
+  const gPS = new Int32Array(R);
+  for (let d = 1; d < R; d++) gPS[d] = gPS[d-1] + gH[d-1];
+
+  // Spine — per-partition exclusive prefix sum per digit column
+  const pPS = Array.from({length: P}, () => new Int32Array(R));
+  for (let d = 0; d < R; d++) {
+    let acc = 0;
+    for (let p = 0; p < P; p++) { pPS[p][d] = acc; acc += pH[p][d]; }
+  }
+
+  // Downsweep — scatter
+  const out = new Array(N);
+  const rows = []; // for scatter detail table
+  for (let p = 0; p < P; p++) {
+    const lc = new Int32Array(R);
+    for (let i = p * PS; i < Math.min((p+1)*PS, N); i++) {
+      const d = digit(keys[i], pass, log2R);
+      const dst = gPS[d] + pPS[p][d] + lc[d];
+      out[dst] = keys[i];
+      rows.push({from: i, to: dst, key: keys[i], d, g: gPS[d], pp: pPS[p][d], lr: lc[d], p});
+      lc[d]++;
+    }
+  }
+
+  return {pH, gH, gPS, pPS, out, rows};
+}
+
+function sort(keys, log2R, numPasses, PS) {
+  const passes = []; let cur = [...keys];
+  for (let p = 0; p < numPasses; p++) {
+    const r = runPass(cur, p, log2R, PS);
+    passes.push({input: [...cur], ...r});
+    cur = r.out;
+  }
+  return {passes, sorted: cur};
+}
+
+// ── Colors ──────────────────────────────────────────────────────────────────
+const dColor = (d, R) => { const l = R > 1 ? Math.round(40 + d * 50 / (R-1)) : 65; return `hsl(0,0%,${l}%)`; };
+const dBg    = (d, R) => { const l = R > 1 ? Math.round(8  + d * 22 / (R-1)) : 18; return `hsl(0,0%,${l}%)`; };
+
+// ── DOM helpers ─────────────────────────────────────────────────────────────
+function mk(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function ap(parent, ...children) {
+  children.forEach(c => parent.appendChild(c));
+  return parent;
+}
+
+// ── Render: key array ───────────────────────────────────────────────────────
+function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null) {
+  const row = mk('div', 'key-row');
+  if (PS > 0) {
+    const P = Math.ceil(keys.length / PS);
+    for (let p = 0; p < P; p++) {
+      const group = mk('div', 'partition-group');
+      const lbl = mk('div', 'partition-lbl'); lbl.textContent = `P${p}`;
+      group.appendChild(lbl);
+      const boxes = mk('div', 'partition-boxes');
+      for (let i = p * PS; i < Math.min((p+1) * PS, keys.length); i++) {
+        const d = digit(keys[i], pass, log2R);
+        const box = mk('div', 'key-box');
+        box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
+        box.innerHTML = `<span class="kv">${keys[i]}</span>` +
+          (showDigit ? `<span class="kd">d=${d}</span>` : '');
+        boxes.appendChild(box);
+      }
+      group.appendChild(boxes);
+      row.appendChild(group);
+    }
+  } else {
+    keys.forEach((k, i) => {
+      const d = digit(k, pass, log2R);
+      const box = mk('div', 'key-box');
+      box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
+      const sub = sublabels ? sublabels[i] : (showDigit ? `d=${d}` : null);
+      box.innerHTML = `<span class="kv">${k}</span>` +
+        (sub ? `<span class="kd">${sub}</span>` : '');
+      row.appendChild(box);
+    });
+  }
+  return row;
+}
+
+// ── Render: keys as partition rows ──────────────────────────────────────────
+function keyGrid(keys, pass, log2R, R, showDigit, PS) {
+  const grid = mk('div', 'key-grid');
+  const P = Math.ceil(keys.length / PS);
+  for (let p = 0; p < P; p++) {
+    const row = mk('div', 'key-grid-row');
+    const lbl = mk('span', 'key-grid-lbl'); lbl.textContent = `P${p}`;
+    row.appendChild(lbl);
+    for (let i = p * PS; i < Math.min((p+1) * PS, keys.length); i++) {
+      const d = digit(keys[i], pass, log2R);
+      const box = mk('div', 'key-box');
+      box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
+      box.innerHTML = `<span class="kv">${keys[i]}</span>` +
+        (showDigit ? `<span class="kd">d=${d}</span>` : '');
+      row.appendChild(box);
+    }
+    grid.appendChild(row);
+  }
+  return grid;
+}
+
+// ── Render: histogram table (RADIX ≤ 16) ────────────────────────────────────
+function histTable(data, R, rowLabels) {
+  const t = mk('table', 'htable');
+  // header
+  const hr = mk('tr');
+  ap(hr, mk('th', null, ''));
+  for (let d = 0; d < R; d++) {
+    const th = mk('th'); th.style.color = dColor(d, R); th.textContent = `d=${d}`;
+    hr.appendChild(th);
+  }
+  ap(t, ap(mk('thead'), hr));
+  // rows
+  const tb = mk('tbody');
+  data.forEach((row, i) => {
+    const tr = mk('tr');
+    ap(tr, mk('td', 'lbl', rowLabels[i]));
+    for (let d = 0; d < R; d++) {
+      const v = row[d];
+      const td = mk('td');
+      td.textContent = v;
+      if (v > 0) td.style.cssText = `background:${dBg(d,R)};color:${dColor(d,R)}`;
+      else td.style.color = 'var(--border)';
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  });
+  ap(t, tb);
+  return t;
+}
+
+// ── Render: single row ───────────────────────────────────────────────────────
+function singleRow(vals, R, label) {
+  const t = mk('table', 'htable');
+  const hr = mk('tr');
+  ap(hr, mk('th', null, ''));
+  for (let d = 0; d < R; d++) {
+    const th = mk('th'); th.style.color = dColor(d, R); th.textContent = `d=${d}`;
+    hr.appendChild(th);
+  }
+  ap(t, ap(mk('thead'), hr));
+  const tr = mk('tr');
+  ap(tr, mk('td', 'lbl', label));
+  for (let d = 0; d < R; d++) {
+    const td = mk('td');
+    td.textContent = vals[d];
+    td.style.cssText = `background:${dBg(d,R)};color:${dColor(d,R)}`;
+    tr.appendChild(td);
+  }
+  ap(t, ap(mk('tbody'), tr));
+  return t;
+}
+
+// ── Render: scatter detail table ────────────────────────────────────────────
+function scatterTable(rows, R) {
+  const t = mk('table', 'stable');
+  const hr = mk('tr');
+  ['idx','key','digit','global\noffset','partition\noffset','local\nrank','→ dst'].forEach(h => ap(hr, mk('th',null,h)));
+  ap(t, ap(mk('thead'), hr));
+  const tb = mk('tbody');
+  rows.forEach(r => {
+    const tr = mk('tr');
+    const c = dColor(r.d, R);
+    [r.from, r.key, r.d, r.g, r.pp, r.lr, r.to].forEach((v, ci) => {
+      const td = mk('td'); td.textContent = v;
+      if (ci === 2) td.style.color = c;
+      if (ci === 6) { td.style.color = 'var(--accent2)'; td.style.fontWeight = 'bold'; }
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  ap(t, tb);
+  return t;
+}
+
+// ── Main render ─────────────────────────────────────────────────────────────
+function render() {
+  const R      = parseInt(document.getElementById('radix').value);
+  const log2R  = Math.round(Math.log2(R));
+  const N      = parseInt(document.getElementById('nkeys').value);
+  const PS     = Math.min(parseInt(document.getElementById('psize').value), N);
+  const seed   = parseInt(document.getElementById('seed').value) || 42;
+
+  document.getElementById('nval').textContent  = N;
+  document.getElementById('psval').textContent = PS;
+
+  const totalBits = log2R;
+  const maxKey    = totalBits >= 32 ? 0xFFFFFFFF : (1 << totalBits) - 1;
+  const gen       = rng(seed);
+  const keys      = Array.from({length: N}, () => gen() % (maxKey + 1));
+
+  const P          = Math.ceil(N / PS);
+  const rowLabels  = Array.from({length: P}, (_, i) => `P${i}`);
+  const {passes, sorted} = sort(keys, log2R, 1, PS);
+
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  // Info line
+  const info = mk('p');
+  info.style.cssText = 'color:var(--muted);font-family:monospace;font-size:.88rem;margin:.5rem 0 1rem';
+  info.textContent =
+    `RADIX=${R}  log₂(RADIX)=${log2R}  N=${N}  partitions=${P}  partition_size=${PS}  key range [0, ${maxKey}]`;
+  app.appendChild(info);
+
+  // Input
+  const inputSec = mk('div');
+  ap(inputSec, mk('h3', null, 'Input Keys'));
+  inputSec.appendChild(keyRow(keys, 0, log2R, R, false));
+  app.appendChild(inputSec);
+
+  // Single pass
+  const {input, pH, gH, gPS, pPS, out, rows} = passes[0];
+  const bitLo = 0, bitHi = log2R - 1;
+
+  // Input with digits
+  const s0 = mk('div');
+  ap(s0, mk('h3', null, 'Keys by Partition'));
+  s0.appendChild(keyGrid(input, 0, log2R, R, false, PS));
+  app.appendChild(s0);
+
+  // Upsweep
+  const s1 = mk('div');
+  ap(s1, mk('h3', null, 'Stage 1 · Upsweep'));
+  ap(s1, mk('div', 'note', 'partitionHistogram[P][d] = count of each digit per partition'));
+  s1.appendChild(histTable(pH, R, rowLabels));
+  app.appendChild(s1);
+
+  // Spine
+  const s2 = mk('div');
+  ap(s2, mk('h3', null, 'Stage 2 · Spine'));
+  ap(s2, mk('div', 'note', 'Total count per digit:'));
+  s2.appendChild(singleRow(gH, R, 'count'));
+  ap(s2, mk('div', 'note', 'Global start offset per digit (exclusive prefix sum of counts):'));
+  s2.appendChild(singleRow(gPS, R, 'offset'));
+  ap(s2, mk('div', 'note', 'Per-partition offset within each digit column (spine result):'));
+  s2.appendChild(histTable(pPS, R, rowLabels));
+  app.appendChild(s2);
+
+  // Downsweep
+  const s3 = mk('div');
+  ap(s3, mk('h3', null, 'Stage 3 · Downsweep — Scatter'));
+  ap(s3, mk('div', 'note', 'dst = globalOffset[d] + partitionOffset[p][d] + localRank'));
+  ap(s3, mk('div', 'note', 'Before:'));
+  s3.appendChild(keyGrid(input, 0, log2R, R, false, PS));
+  ap(s3, mk('div', 'note', 'After:'));
+  s3.appendChild(keyRow(out, 0, log2R, R, false, 0, out.map((_, i) => `dst=${i}`)));
+  const det = mk('details');
+  ap(det, mk('summary', null, 'Show scatter detail table'));
+  det.appendChild(scatterTable(rows, R));
+  s3.appendChild(det);
+  app.appendChild(s3);
+
+  // Sorted output
+  const outSec = mk('div');
+  ap(outSec, mk('h3', null, 'Sorted Output'));
+  outSec.appendChild(keyRow(sorted, 0, log2R, R, false));
+  app.appendChild(outSec);
+}
+
+// ── Wire controls ────────────────────────────────────────────────────────────
+['radix','nkeys','psize','seed'].forEach(id => {
+  document.getElementById(id).addEventListener('input',  render);
+  document.getElementById(id).addEventListener('change', render);
+});
+render();
+</script>
+
+</body>
+</html>
