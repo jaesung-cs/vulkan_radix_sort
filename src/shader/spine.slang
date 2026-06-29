@@ -14,8 +14,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
           uint groupIndex: SV_GroupIndex, uniform int pass) {
   uint elementCount = elementCounts[0];
 
-  uint laneIndex = WaveGetLaneIndex();  // 0..31
-  uint laneCount = WaveGetLaneCount();  // 32
+  uint laneIndex = WaveGetLaneIndex();  // 0..31 or 0..63
+  uint laneCount = WaveGetLaneCount();  // 32 or 64
   uint waveIndex = groupIndex / laneCount;
   uint waveCount = WORKGROUP_SIZE / laneCount;
   uint index = waveIndex * laneCount + laneIndex;

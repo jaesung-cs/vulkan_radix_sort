@@ -1,39 +1,18 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(vk_radix_sort VERSION 0.3.3 LANGUAGES CXX)
+project(vk_radix_sort VERSION 0.4.0 LANGUAGES CXX)
 
 find_package(Vulkan REQUIRED)
 message(STATUS "Vulkan version: ${Vulkan_VERSION}")
 find_package(Python3 REQUIRED)
 include(FetchContent)
 
-# find slangc
-string(REPLACE glslangValidator slangc SLANGC_EXECUTABLE ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE})
-message(STATUS "slangc executable: ${SLANGC_EXECUTABLE}")
+option(VRDX_SLANGC_FROM_SDK "Use slangc from the Vulkan SDK instead of downloading a pinned release" OFF)
+include(cmake/Slangc.cmake)
+fetch_slangc("2026.11")
 
 # shaders
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
-
-# build_shader(SHADER OUTPUT DEFINE...)
-function(build_shader)
-  list(POP_FRONT ARGV SHADER OUTPUT)
-  list(TRANSFORM ARGV PREPEND "-D" OUTPUT_VARIABLE DEFINES)
-
-  get_filename_component(SHADER ${SHADER} ABSOLUTE)
-
-  add_custom_target(${OUTPUT} ALL
-    COMMAND
-      ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/slangc_to_header.py
-      -target spirv
-      -fvk-t-shift 0 0
-      -fvk-u-shift 0 0
-      -o ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h
-      ${DEFINES}
-      ${SHADER}
-    COMMENT "Compiling ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/${OUTPUT}.h"
-    VERBATIM
-  )
-endfunction()
 
 # header-only library
 add_library(vk_radix_sort INTERFACE)
@@ -90,6 +69,13 @@ if(PROJECT_IS_TOP_LEVEL)
   set(FUCHSIA_RADIX_SORT_USE_VOLK ON CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(fuchsia_radix_sort)
 
+  FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+    GIT_TAG        44380e5a44706ab7347f400698c703eb2a196202  # v3.3.1
+  )
+  FetchContent_MakeAvailable(cxxopts)
+
   set(BENCH_SOURCES
     bench/bench.cc
     bench/benchmark_factory.cc
@@ -139,5 +125,5 @@ if(PROJECT_IS_TOP_LEVEL)
 
   target_compile_definitions(bench PRIVATE VK_NO_PROTOTYPES)
 
-  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator fuchsia_radix_sort)
+  target_link_libraries(bench PRIVATE vk_radix_sort volk::volk_headers VulkanMemoryAllocator fuchsia_radix_sort cxxopts::cxxopts)
 endif()

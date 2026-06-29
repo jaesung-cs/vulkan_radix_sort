@@ -18,7 +18,7 @@ class VulkanBenchmark : public BenchmarkBase {
   };
 
  public:
-  VulkanBenchmark();
+  explicit VulkanBenchmark(bool validation = false);
   ~VulkanBenchmark() override;
 
   std::string LibraryVersion() const override;
@@ -31,6 +31,9 @@ class VulkanBenchmark : public BenchmarkBase {
   void Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, bool mapped = false);
 
  private:
+  uint32_t min_buffer_alignment_ = 16;
+  float timestamp_period_ = 1.f;
+
   VkInstance instance_ = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
   VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;

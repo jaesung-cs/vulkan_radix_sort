@@ -1,19 +1,21 @@
 # vulkan_radix_sort
 
-Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan library.
-Easily integrates into any Vulkan project without additional dependencies, making it suitable for applications such as 3D Gaussian Splatting rendering.
+Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan library. No additional dependencies.
 
-> **Note:** As of January 2025, this library was competitive with CUB Reduce-then-Scan radix sort.
-> Benchmarking in April 2026 against CUDA 13.2 and CUB v3.2.0 (which now defaults to Onesweep) shows CUB is faster by 2.1× on keys-only and 1.3× on key-value at N = 2^25.
-> Nevertheless, it remains a practical choice for Vulkan-based applications such as 3D Gaussian Splatting.
+> **Note:** As of June 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.85× on keys-only and 1.25× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
 
 
 ## Requirements
 
-- `VulkanSDK >= 1.4.328.1` — download from https://vulkan.lunarg.com/
-  - `slangc` is included in VulkanSDK >= 1.3.296.0
-  - Push descriptor requires VulkanSDK >= 1.4 (>= 1.4.328.1 for macOS)
+- `VulkanSDK >= 1.4.328.1` — download from https://vulkan.lunarg.com/ (push descriptor requires >= 1.4; >= 1.4.328.1 for macOS)
 - `cmake >= 3.24`
+- Vulkan 1.3+ device with `pushDescriptor` and `synchronization2` enabled (see [Usage](#usage))
+
+`slangc` v2026.11 is downloaded automatically at configure time. To use the Vulkan SDK's `slangc` instead:
+
+```bash
+cmake -B build -DVRDX_SLANGC_FROM_SDK=ON
+```
 
 
 ## Benchmark
@@ -21,18 +23,21 @@ Easily integrates into any Vulkan project without additional dependencies, makin
 ### Build
 
 ```bash
-$ cmake . -B build
+$ cmake . -B build                            # slangc downloaded automatically (v2026.11)
+$ cmake . -B build -DVRDX_SLANGC_FROM_SDK=ON  # use slangc from Vulkan SDK instead
 $ cmake --build build --config Release -j
 ```
 
 ### Run
 
 ```bash
-$ ./build/Release/bench.exe <type> [output.csv]  # Windows
-$ ./build/bench <type> [output.csv]              # Linux
+$ ./build/Release/bench.exe <type> [-o output.csv] [--validation] [--no-verify]  # Windows
+$ ./build/bench <type> [-o output.csv] [--validation] [--no-verify]              # Linux
 ```
 
 - `type`: `cpu`, `vulkan`, `cuda`, `fuchsia`
+- `--validation`: enable Vulkan validation layers (disabled by default to avoid benchmark overhead)
+- `--no-verify`: skip correctness check and proceed directly to benchmarking
 - Sweeps N from 2^18 to 2^25 (128 steps), 1 warmup + 10 timed runs each
 - Outputs median GPU and CPU throughput to CSV
 
@@ -45,21 +50,21 @@ $ python tools/plot.py vulkan.csv cuda.csv --output results.png
 
 Test environment: Windows, NVIDIA GeForce RTX 5080, CUDA 13.2, CUB v3.2.0 (Onesweep default).
 
-Median throughput at N = 2^25 (33,554,432 elements). Ratios are relative to this library (> 1× means the competitor is faster).
+Median throughput at N = 2^25. Ratios relative to this library (> 1× means the competitor is faster).
 
 | Sort type | This library (Vulkan) | Fuchsia (Vulkan) | CUB Onesweep (CUDA) |
 |---|---|---|---|
-| 32-bit keys only | 10.66 GItems/s | 13.58 GItems/s (1.27×) | 22.40 GItems/s (2.10×) |
-| 32-bit key-value | 9.04 GItems/s | 5.02 GItems/s (0.56×) | 11.68 GItems/s (1.29×) |
+| 32-bit keys only | 12.07 GItems/s | 15.59 GItems/s (1.29×) | 22.36 GItems/s (1.85×) |
+| 32-bit key-value | 9.35 GItems/s | 5.32 GItems/s (0.57×) | 11.67 GItems/s (1.25×) |
 
-[Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) is faster on keys-only, but 1.80× slower on key-value. Fuchsia sorts key-value pairs as a single 64-bit key, doubling memory traffic per pass, while this library sorts the two buffers independently.
+[Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) is faster on keys-only, but 1.76× slower on key-value. Fuchsia sorts key-value pairs as a single 64-bit key, doubling memory traffic per pass, while this library sorts the two buffers independently.
 
 ![Benchmark Result](media/results.png)
 
 
 ## Integration
 
-This is a single header-only library. You can integrate it via CMake or by copying `include/vk_radix_sort.h` directly into your project.
+Integrate via CMake or by copying `include/vk_radix_sort.h` into your project.
 
 ### CMake
 
@@ -77,16 +82,14 @@ This is a single header-only library. You can integrate it via CMake or by copyi
     target_link_libraries(my_project PRIVATE Vulkan::Vulkan vk_radix_sort)
     ```
 
-### Manual
+### Copy header
 
 Copy `include/vk_radix_sort.h` into your project and include it directly.
 
 
 ## Usage
 
-1. In exactly one source file, define `VRDX_IMPLEMENTATION` before including `vk_radix_sort.h`.
-
-    If you are using Volk, include `volk.h` first so the library uses Volk's function pointer dispatch. Otherwise it falls back to the standard `<vulkan/vulkan.h>` prototypes.
+1. In exactly one source file, define `VRDX_IMPLEMENTATION` before including `vk_radix_sort.h`. Include `volk.h` first if using Volk.
 
     ```c++
     // With Volk
@@ -99,6 +102,22 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
     #include "vk_radix_sort.h"
     ```
 
+1. Enable the required features when creating the `VkDevice`:
+
+    ```c++
+    VkPhysicalDeviceVulkan13Features features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    features13.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceVulkan14Features features14 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+    features14.pNext = &features13;
+    features14.pushDescriptor = VK_TRUE;
+
+    VkDeviceCreateInfo deviceInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    deviceInfo.pNext = &features14;
+    // ...
+    vkCreateDevice(physicalDevice, &deviceInfo, nullptr, &device);
+    ```
+
 1. Create `VkBuffer` for keys and values with `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`.
 
 1. Create `VrdxSorter`:
@@ -109,7 +128,8 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
     sorterInfo.physicalDevice = physicalDevice;
     sorterInfo.device = device;
     sorterInfo.pipelineCache = pipelineCache;
-    vrdxCreateSorter(&sorterInfo, &sorter);
+    VkResult result = vrdxCreateSorter(&sorterInfo, &sorter);
+    if (result != VK_SUCCESS) { /* handle error */ }
     ```
 
 1. Allocate a temporary storage buffer:
@@ -129,7 +149,7 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
 
     Buffer offsets must be multiples of `minStorageBufferOffsetAlignment` (usually `16`).
 
-    The sort command binds its own pipeline, pipeline layout, and push constants — previously bound state is not preserved after the call.
+    The sort rebinds pipeline, layout, and push constants — previously bound state is lost.
 
     Add **execution barriers** around the sort. Use global memory barriers rather than per-resource barriers ([Vulkan synchronization examples](https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples#three-dispatches-first-dispatch-writes-to-one-storage-buffer-second-dispatch-writes-to-a-different-storage-buffer-third-dispatch-reads-both)):
 
@@ -165,7 +185,19 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
 
 ## Development Guide
 
-After modifying shaders, run the cmake build. It runs `slangc`, generates `src/generated/*.h`, then regenerates `include/vk_radix_sort.h` from `src/vk_radix_sort.h.in` via `tools/generate_header.py`.
+After modifying shaders, run the cmake build. It compiles shaders with `slangc` into `src/generated/*.h`, then assembles `include/vk_radix_sort.h` from `src/vk_radix_sort.h.in`. Each generated file includes the `slangc` version as a comment:
+
+```c
+// Generated by slangc 2026.11
+```
+
+To bump the `slangc` version, update `SLANG_VERSION` in `cmake/Slangc.cmake` and rebuild.
+
+To bump the library version, update `VERSION` in the `project()` call in `CMakeLists.txt`, rebuild, and commit the regenerated `include/vk_radix_sort.h`.
+
+### Contributing
+
+When modifying shaders or `src/vk_radix_sort.h.in`, commit the regenerated `include/vk_radix_sort.h` as well. Use the default build (without `-DVRDX_SLANGC_FROM_SDK=ON`) to ensure the output is reproducible.
 
 
 ## TODO

@@ -44,12 +44,11 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 }  // namespace
 
 std::string VulkanBenchmark::LibraryVersion() const {
-  return "v" + std::to_string(VRDX_VERSION_MAJOR) + "." +
-               std::to_string(VRDX_VERSION_MINOR) + "." +
-               std::to_string(VRDX_VERSION_PATCH);
+  return "v" + std::to_string(VRDX_VERSION_MAJOR) + "." + std::to_string(VRDX_VERSION_MINOR) + "." +
+         std::to_string(VRDX_VERSION_PATCH);
 }
 
-VulkanBenchmark::VulkanBenchmark() {
+VulkanBenchmark::VulkanBenchmark(bool validation) {
   volkInitialize();
 
   // instance
@@ -69,28 +68,32 @@ VulkanBenchmark::VulkanBenchmark() {
                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
   messenger_info.pfnUserCallback = DebugCallback;
 
-  std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
+  std::vector<const char*> layers;
   std::vector<const char*> instance_extensions = {
-      VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 #ifdef __APPLE__
       VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
 #endif
   };
 
+  if (validation) {
+    layers.push_back("VK_LAYER_KHRONOS_validation");
+    instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
+
   VkInstanceCreateInfo instance_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
 #ifdef __APPLE__
   instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
-  instance_info.pNext = &messenger_info;
+  instance_info.pNext = validation ? &messenger_info : nullptr;
   instance_info.pApplicationInfo = &application_info;
-  instance_info.enabledLayerCount = layers.size();
+  instance_info.enabledLayerCount = static_cast<uint32_t>(layers.size());
   instance_info.ppEnabledLayerNames = layers.data();
-  instance_info.enabledExtensionCount = instance_extensions.size();
+  instance_info.enabledExtensionCount = static_cast<uint32_t>(instance_extensions.size());
   instance_info.ppEnabledExtensionNames = instance_extensions.data();
   vkCreateInstance(&instance_info, NULL, &instance_);
   volkLoadInstance(instance_);
 
-  CreateDebugUtilsMessengerEXT(instance_, &messenger_info, NULL, &messenger_);
+  if (validation) CreateDebugUtilsMessengerEXT(instance_, &messenger_info, NULL, &messenger_);
 
   // physical device
   uint32_t physical_device_count = 0;
@@ -98,6 +101,12 @@ VulkanBenchmark::VulkanBenchmark() {
   std::vector<VkPhysicalDevice> physical_devices(physical_device_count);
   vkEnumeratePhysicalDevices(instance_, &physical_device_count, physical_devices.data());
   physical_device_ = physical_devices[0];
+
+  VkPhysicalDeviceProperties device_properties;
+  vkGetPhysicalDeviceProperties(physical_device_, &device_properties);
+  min_buffer_alignment_ =
+      static_cast<uint32_t>(device_properties.limits.minStorageBufferOffsetAlignment);
+  timestamp_period_ = device_properties.limits.timestampPeriod;
 
   // find graphics queue
   uint32_t queue_family_count = 0;
@@ -131,7 +140,13 @@ VulkanBenchmark::VulkanBenchmark() {
 #endif
   };
 
-  VkPhysicalDeviceVulkan14Features features14 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+  VkPhysicalDeviceVulkan13Features features13 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+  features13.synchronization2 = VK_TRUE;
+
+  VkPhysicalDeviceVulkan14Features features14 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+  features14.pNext = &features13;
   features14.pushDescriptor = VK_TRUE;
 
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -237,7 +252,7 @@ void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsag
 
 VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys) {
   uint32_t element_count = keys.size();
-  uint32_t inout_size = Align(element_count * sizeof(uint32_t), 16);
+  uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
   Reallocate(&staging_, inout_size,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
@@ -305,22 +320,32 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
                         timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                         VK_QUERY_RESULT_64_BIT);
 
+  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+    return static_cast<uint64_t>(ticks * timestamp_period_);
+  };
+
   Results result;
   result.keys.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
-  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
-  result.cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
+  result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
+  result.cpu_time =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
+  for (int pass = 0; pass < 4; ++pass) {
+    result.upsweep_ns   += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+    result.spine_ns     += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+    result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+  }
   return result;
 }
 
 VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_t>& keys,
                                                        const std::vector<uint32_t>& values) {
   uint32_t element_count = keys.size();
-  uint32_t inout_size = Align(element_count * sizeof(uint32_t), 16);
+  uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
-  Reallocate(&staging_, 2 * inout_size + 16,
+  Reallocate(&staging_, 2 * inout_size + min_buffer_alignment_,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-  Reallocate(&keys_, 2 * inout_size + 16,
+  Reallocate(&keys_, 2 * inout_size + min_buffer_alignment_,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
@@ -387,12 +412,22 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
                         timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                         VK_QUERY_RESULT_64_BIT);
 
+  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+    return static_cast<uint64_t>(ticks * timestamp_period_);
+  };
+
   Results result;
   result.keys.resize(element_count);
   result.values.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
   std::memcpy(result.values.data(), staging_.map + inout_size, element_count * sizeof(uint32_t));
-  result.total_time = timestamps[timestamp_count - 1] - timestamps[0];
-  result.cpu_time = std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
+  result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
+  result.cpu_time =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
+  for (int pass = 0; pass < 4; ++pass) {
+    result.upsweep_ns   += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+    result.spine_ns     += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+    result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+  }
   return result;
 }
