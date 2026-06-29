@@ -32,10 +32,7 @@ function(fetch_slangc VERSION)
     URL "https://github.com/shader-slang/slang/releases/download/v${VERSION}/slang-${VERSION}-${SLANG_OS}.${SLANG_ARCHIVE_EXT}"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
-  FetchContent_GetProperties(slang_bin)
-  if(NOT slang_bin_POPULATED)
-    FetchContent_Populate(slang_bin)
-  endif()
+  FetchContent_MakeAvailable(slang_bin)
 
   if(WIN32)
     set(_slangc "${slang_bin_SOURCE_DIR}/bin/slangc.exe")
