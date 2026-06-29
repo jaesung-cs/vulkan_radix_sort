@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vulkan Radix Sort</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <h1>Vulkan Radix Sort</h1>
+  <p>A reduce-then-scan GPU radix sort — single-header, Vulkan-only, no extra dependencies</p>
+  <div class="links">
+    <a href="https://github.com/jaesung-cs/vulkan_radix_sort">GitHub</a>
+    <a href="https://github.com/jaesung-cs/vulkan_radix_sort/blob/master/include/vk_radix_sort.h">Header</a>
+    <a href="https://github.com/jaesung-cs/vulkan_radix_sort/blob/master/README.md">README</a>
+  </div>
+</header>
+
+<main>
+
+<!-- ═══════════════════════════════════════════════════════ OVERVIEW -->
+<h2>Overview</h2>
+
+<p>
+  This library sorts arrays of 32-bit unsigned-integer keys (optionally paired with 32-bit
+  values) entirely on the GPU using Vulkan compute shaders. It implements a classic
+  <strong>reduce-then-scan</strong> radix sort — a three-stage pipeline repeated four times,
+  one stage per byte of the key.
+</p>
+
+<div class="card-row">
+  <div class="card">
+    <div class="label">Radix</div>
+    <div class="value">256</div>
+    <p>8 bits processed per pass</p>
+  </div>
+  <div class="card">
+    <div class="label">Passes</div>
+    <div class="value">4</div>
+    <p>One per byte of a 32-bit key</p>
+  </div>
+  <div class="card">
+    <div class="label">Partition size</div>
+    <div class="value">4096</div>
+    <p>Elements per workgroup (8 × 512 threads)</p>
+  </div>
+  <div class="card">
+    <div class="label">Throughput</div>
+    <div class="value">10.7</div>
+    <p>GItems/s on RTX 5080 at N = 2²⁵</p>
+  </div>
+</div>
+
+<p>
+  Each pass extracts one byte from every key, builds a global count histogram, computes a
+  prefix sum over that histogram, then scatters every key to its sorted position. After four
+  passes the full 32-bit sort is complete.
+</p>
+
+<p>
+  Every pass runs three GPU dispatches in sequence, separated by pipeline barriers:
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 780 140" width="780" height="140" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#2e3248"/>
+    </marker>
+  </defs>
+  <rect x="10"  y="30" width="200" height="80" rx="8" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="290" y="30" width="200" height="80" rx="8" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="570" y="30" width="200" height="80" rx="8" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="50"  y="20" width="120" height="22" rx="11" fill="#7c6af7"/>
+  <rect x="330" y="20" width="120" height="22" rx="11" fill="#56cfad"/>
+  <rect x="610" y="20" width="120" height="22" rx="11" fill="#f7a24e"/>
+  <text x="110" y="35" text-anchor="middle" fill="#fff"    font-size="12" font-weight="bold">1 · Upsweep</text>
+  <text x="390" y="35" text-anchor="middle" fill="#0f1117" font-size="12" font-weight="bold">2 · Spine</text>
+  <text x="670" y="35" text-anchor="middle" fill="#0f1117" font-size="12" font-weight="bold">3 · Downsweep</text>
+  <text x="110" y="68" text-anchor="middle" fill="#dce3f0" font-size="11">Per-partition histogram</text>
+  <text x="110" y="84" text-anchor="middle" fill="#7a84a0" font-size="10">dispatch(1,000 WGs)</text>
+  <text x="110" y="98" text-anchor="middle" fill="#525c78" font-size="9">at N = 4,096,000</text>
+  <text x="390" y="68" text-anchor="middle" fill="#dce3f0" font-size="11">Global prefix sum</text>
+  <text x="390" y="84" text-anchor="middle" fill="#7a84a0" font-size="10">dispatch(256 WGs)</text>
+  <text x="390" y="98" text-anchor="middle" fill="#525c78" font-size="9">one per radix digit</text>
+  <text x="670" y="68" text-anchor="middle" fill="#dce3f0" font-size="11">Key/value scatter</text>
+  <text x="670" y="84" text-anchor="middle" fill="#7a84a0" font-size="10">dispatch(1,000 WGs)</text>
+  <text x="670" y="98" text-anchor="middle" fill="#525c78" font-size="9">at N = 4,096,000</text>
+  <line x1="210" y1="70" x2="288" y2="70" stroke="#2e3248" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="490" y1="70" x2="568" y2="70" stroke="#2e3248" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="249" y="63" text-anchor="middle" fill="#525c78" font-size="9">barrier</text>
+  <text x="529" y="63" text-anchor="middle" fill="#525c78" font-size="9">barrier</text>
+</svg>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ALGORITHM -->
+<h2>Algorithm</h2>
+
+<h3>Four Passes Over the Key Bytes</h3>
+
+<p>
+  A 32-bit key is sorted one byte at a time, from least-significant to most-significant.
+  Each pass extracts one byte as a digit in [0, 255]. Because radix sort is stable,
+  four such passes produce a correct total order on the full 32-bit key.
+</p>
+
+<!-- Key byte decomposition diagram -->
+<div class="diagram">
+<svg viewBox="0 0 760 124" width="760" height="124" xmlns="http://www.w3.org/2000/svg">
+  <!-- Full key bar -->
+  <text x="10" y="14" fill="#7a84a0" font-size="10">Example — key 0x3A7F12BC decomposed into four digits:</text>
+  <rect x="80" y="20" width="600" height="28" rx="5" fill="#12141e" stroke="#2e3248"/>
+  <text x="380" y="38" text-anchor="middle" fill="#7a84a0" font-size="11">0x3A7F12BC</text>
+
+  <!-- MSB / LSB labels -->
+  <text x="80"  y="18" text-anchor="middle" fill="#525c78" font-size="8">MSB</text>
+  <text x="680" y="18" text-anchor="middle" fill="#525c78" font-size="8">LSB</text>
+
+  <!-- Four byte boxes -->
+  <rect x="80"  y="62" width="148" height="52" rx="6" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="234" y="62" width="148" height="52" rx="6" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="388" y="62" width="148" height="52" rx="6" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="532" y="62" width="148" height="52" rx="6" fill="#1a1d27" stroke="#e07cf0"/>
+
+  <!-- Pass labels -->
+  <text x="154" y="79" text-anchor="middle" fill="#7c6af7"  font-size="10" font-weight="bold">pass 3  ·  bits 24–31</text>
+  <text x="308" y="79" text-anchor="middle" fill="#f7a24e"  font-size="10" font-weight="bold">pass 2  ·  bits 16–23</text>
+  <text x="462" y="79" text-anchor="middle" fill="#56cfad"  font-size="10" font-weight="bold">pass 1  ·  bits 8–15</text>
+  <text x="606" y="79" text-anchor="middle" fill="#e07cf0"  font-size="10" font-weight="bold">pass 0  ·  bits 0–7</text>
+
+  <!-- Hex + decimal digit values -->
+  <text x="154" y="97" text-anchor="middle" fill="#dce3f0" font-size="13" font-weight="bold">0x3A</text>
+  <text x="308" y="97" text-anchor="middle" fill="#dce3f0" font-size="13" font-weight="bold">0x7F</text>
+  <text x="462" y="97" text-anchor="middle" fill="#dce3f0" font-size="13" font-weight="bold">0x12</text>
+  <text x="606" y="97" text-anchor="middle" fill="#dce3f0" font-size="13" font-weight="bold">0xBC</text>
+
+  <text x="154" y="110" text-anchor="middle" fill="#525c78" font-size="10">digit = 58</text>
+  <text x="308" y="110" text-anchor="middle" fill="#525c78" font-size="10">digit = 127</text>
+  <text x="462" y="110" text-anchor="middle" fill="#525c78" font-size="10">digit = 18</text>
+  <text x="606" y="110" text-anchor="middle" fill="#525c78" font-size="10">digit = 188</text>
+
+  <!-- "sorted first" arrow -->
+  <text x="606" y="122" text-anchor="middle" fill="#e07cf0" font-size="8">↑ sorted first</text>
+</svg>
+</div>
+
+<h3>Buffer Layout</h3>
+
+<p>
+  All temporary data lives in a single pre-allocated <em>storage buffer</em>. Sizes shown for N = 4,096,000:
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 760 64" width="760" height="64" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4"   y="16" width="60"  height="28" rx="4" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="68"  y="16" width="110" height="28" rx="4" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="182" y="16" width="160" height="28" rx="4" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="346" y="16" width="200" height="28" rx="4" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="550" y="16" width="200" height="28" rx="4" fill="#1a1d27" stroke="#2e3248"/>
+
+  <text x="34"  y="30" text-anchor="middle" fill="#7c6af7"  font-size="9">element</text>
+  <text x="34"  y="40" text-anchor="middle" fill="#7c6af7"  font-size="9">count</text>
+  <text x="123" y="30" text-anchor="middle" fill="#56cfad"  font-size="9">globalHistogram</text>
+  <text x="262" y="30" text-anchor="middle" fill="#f7a24e"  font-size="9">partitionHistogram</text>
+  <text x="446" y="30" text-anchor="middle" fill="#dce3f0"  font-size="9">keys  (ping-pong scratch)</text>
+  <text x="650" y="30" text-anchor="middle" fill="#dce3f0"  font-size="9">values  (ping-pong scratch)</text>
+
+  <text x="34"  y="54" text-anchor="middle" fill="#525c78"  font-size="8">4 B</text>
+  <text x="123" y="54" text-anchor="middle" fill="#525c78"  font-size="8">4 × 256 × 4 B = 4 KB</text>
+  <text x="262" y="54" text-anchor="middle" fill="#525c78"  font-size="8">1,000 × 256 × 4 B = 1 MB</text>
+  <text x="446" y="54" text-anchor="middle" fill="#525c78"  font-size="8">4,096,000 × 4 B ≈ 16 MB</text>
+  <text x="650" y="54" text-anchor="middle" fill="#525c78"  font-size="8">4,096,000 × 4 B ≈ 16 MB</text>
+</svg>
+</div>
+
+<ul>
+  <li><strong>globalHistogram</strong> — four consecutive 256-entry histograms (one per pass), each accumulated from all partitions during upsweep.</li>
+  <li><strong>partitionHistogram</strong> — one 256-entry histogram per partition (P = ⌈N/4096⌉), overwritten in-place by the spine with exclusive prefix sums.</li>
+  <li><strong>ping-pong region</strong> — keys and values alternate between the user-supplied buffer and this scratch region each pass, so the final result lands back in the original buffer after pass 3.</li>
+</ul>
+
+<p>
+  N is rounded up to the next multiple of 4096 by filling spare slots with <code>0xFFFFFFFF</code>.
+  This value sorts naturally to the very end (all bits set = maximum), so the padding never corrupts the output.
+</p>
+
+<h3>Stage 1 — Upsweep (Histogram)</h3>
+
+<p>
+  One workgroup per partition. 512 threads each read 8 keys (4096 total) and tally their
+  digit into a <strong>per-partition histogram</strong> in shared memory using atomic adds.
+  The local histogram is then flushed to global memory and accumulated into the global histogram.
+</p>
+
+<!-- Workgroup math diagram -->
+<div class="diagram">
+<svg viewBox="0 0 760 58" width="760" height="58" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrm" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#2e3248"/>
+    </marker>
+  </defs>
+  <!-- 4 number boxes -->
+  <rect x="10"  y="10" width="130" height="40" rx="6" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="200" y="10" width="130" height="40" rx="6" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="390" y="10" width="150" height="40" rx="6" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="600" y="10" width="150" height="40" rx="6" fill="#1a1d27" stroke="#56cfad"/>
+
+  <text x="75"  y="28" text-anchor="middle" fill="#7c6af7" font-size="14" font-weight="bold">512</text>
+  <text x="75"  y="43" text-anchor="middle" fill="#525c78" font-size="9">threads / workgroup</text>
+
+  <text x="265" y="28" text-anchor="middle" fill="#7c6af7" font-size="14" font-weight="bold">8</text>
+  <text x="265" y="43" text-anchor="middle" fill="#525c78" font-size="9">keys / thread</text>
+
+  <text x="465" y="28" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">4,096</text>
+  <text x="465" y="43" text-anchor="middle" fill="#525c78" font-size="9">keys / partition</text>
+
+  <text x="675" y="28" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">1,000</text>
+  <text x="675" y="43" text-anchor="middle" fill="#525c78" font-size="9">partitions at N = 4,096,000</text>
+
+  <!-- Operators -->
+  <text x="155" y="35" text-anchor="middle" fill="#7a84a0" font-size="16">×</text>
+  <text x="348" y="35" text-anchor="middle" fill="#7a84a0" font-size="16">=</text>
+  <text x="563" y="35" text-anchor="middle" fill="#7a84a0" font-size="14">→</text>
+</svg>
+</div>
+
+<div class="diagram">
+<svg viewBox="0 0 760 210" width="760" height="210" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#2e3248"/>
+    </marker>
+  </defs>
+  <!-- Input buffer -->
+  <rect x="10" y="10" width="200" height="40" rx="6" fill="#1a1d27" stroke="#2e3248"/>
+  <text x="110" y="27" text-anchor="middle" fill="#7a84a0" font-size="10">keys [ 0 … 4,095,999 ]</text>
+  <text x="110" y="42" text-anchor="middle" fill="#525c78" font-size="9">N = 4,096,000 = 1,000 × 4,096</text>
+
+  <!-- Partition boxes -->
+  <rect x="10"  y="94" width="55" height="40" rx="5" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="75"  y="94" width="55" height="40" rx="5" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="140" y="94" width="55" height="40" rx="5" fill="#1a1d27" stroke="#7c6af7"/>
+  <text x="38"  y="116" text-anchor="middle" fill="#7c6af7" font-size="9">P₀</text>
+  <text x="38"  y="128" text-anchor="middle" fill="#525c78" font-size="8">4,096 keys</text>
+  <text x="103" y="116" text-anchor="middle" fill="#7c6af7" font-size="9">P₁</text>
+  <text x="103" y="128" text-anchor="middle" fill="#525c78" font-size="8">4,096 keys</text>
+  <text x="133" y="116" text-anchor="middle" fill="#525c78" font-size="9">…</text>
+  <text x="168" y="116" text-anchor="middle" fill="#7c6af7" font-size="9">P₉₉₉</text>
+  <text x="168" y="128" text-anchor="middle" fill="#525c78" font-size="8">4,096 keys</text>
+
+  <line x1="110" y1="50" x2="38"  y2="92" stroke="#2e3248" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="110" y1="50" x2="103" y2="92" stroke="#2e3248" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="110" y1="50" x2="168" y2="92" stroke="#2e3248" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- Partition histogram rows (showing 8 digits each) -->
+  <text x="280" y="25" fill="#7a84a0" font-size="9">partitionHistogram[Pᵢ][0..255] — count of each digit in the partition</text>
+
+  <!-- P0 row -->
+  <rect x="280" y="30" width="460" height="26" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="295" y="47" fill="#f7a24e" font-size="9">P₀:</text>
+  <text x="332" y="47" fill="#dce3f0" font-size="9">d0=17</text>
+  <text x="380" y="47" fill="#dce3f0" font-size="9">d1=4</text>
+  <text x="420" y="47" fill="#dce3f0" font-size="9">d2=0</text>
+  <text x="460" y="47" fill="#dce3f0" font-size="9">d3=203</text>
+  <text x="520" y="47" fill="#dce3f0" font-size="9">d4=11</text>
+  <text x="560" y="47" fill="#dce3f0" font-size="9">d5=16</text>
+  <text x="600" y="47" fill="#525c78" font-size="9">…</text>
+  <text x="630" y="47" fill="#dce3f0" font-size="9">d255=14</text>
+
+  <!-- P1 row -->
+  <rect x="280" y="62" width="460" height="26" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="295" y="79" fill="#f7a24e" font-size="9">P₁:</text>
+  <text x="332" y="79" fill="#dce3f0" font-size="9">d0=22</text>
+  <text x="380" y="79" fill="#dce3f0" font-size="9">d1=8</text>
+  <text x="420" y="79" fill="#dce3f0" font-size="9">d2=1</text>
+  <text x="460" y="79" fill="#dce3f0" font-size="9">d3=190</text>
+  <text x="520" y="79" fill="#dce3f0" font-size="9">d4=19</text>
+  <text x="560" y="79" fill="#dce3f0" font-size="9">d5=21</text>
+  <text x="600" y="79" fill="#525c78" font-size="9">…</text>
+  <text x="630" y="79" fill="#dce3f0" font-size="9">d255=9</text>
+
+  <!-- P2 row -->
+  <rect x="280" y="94" width="460" height="26" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="295" y="111" fill="#f7a24e" font-size="9">P₂:</text>
+  <text x="332" y="111" fill="#dce3f0" font-size="9">d0=19</text>
+  <text x="380" y="111" fill="#dce3f0" font-size="9">d1=5</text>
+  <text x="420" y="111" fill="#dce3f0" font-size="9">d2=2</text>
+  <text x="460" y="111" fill="#dce3f0" font-size="9">d3=197</text>
+  <text x="520" y="111" fill="#dce3f0" font-size="9">d4=14</text>
+  <text x="560" y="111" fill="#dce3f0" font-size="9">d5=18</text>
+  <text x="600" y="111" fill="#525c78" font-size="9">…</text>
+  <text x="630" y="111" fill="#dce3f0" font-size="9">d255=17</text>
+
+  <line x1="168" y1="114" x2="278" y2="90" stroke="#2e3248" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- Global histogram -->
+  <rect x="280" y="135" width="460" height="30" rx="6" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="295" y="151" fill="#56cfad" font-size="9">global:</text>
+  <text x="340" y="151" fill="#dce3f0" font-size="9">d0=16,023</text>
+  <text x="418" y="151" fill="#dce3f0" font-size="9">d1=16,048</text>
+  <text x="497" y="151" fill="#dce3f0" font-size="9">d2=16,031</text>
+  <text x="577" y="151" fill="#525c78" font-size="9">…</text>
+  <text x="610" y="151" fill="#dce3f0" font-size="9">d255=16,019</text>
+  <text x="295" y="161" fill="#7a84a0" font-size="8">sum of all P₀..P₉₉₉ for each digit  (≈ N/256 = 16,000 per digit for uniform data)</text>
+
+  <line x1="510" y1="122" x2="510" y2="133" stroke="#2e3248" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- Shared memory label -->
+  <rect x="10" y="162" width="230" height="36" rx="6" fill="#12141e" stroke="#2e3248" stroke-dasharray="4 2"/>
+  <text x="125" y="177" text-anchor="middle" fill="#525c78" font-size="10">shared memory (SMEM)</text>
+  <text x="125" y="191" text-anchor="middle" fill="#525c78" font-size="9">localHistogram[256] — 1 KB per WG</text>
+</svg>
+</div>
+
+<h3>Stage 2 — Spine (Prefix Sum)</h3>
+
+<p>
+  256 workgroups are launched simultaneously, one per radix digit. Each workgroup scans
+  the <em>column</em> of its digit across all partitions, replacing raw counts with
+  <strong>exclusive prefix sums</strong>. The global histogram is scanned separately to
+  produce per-digit starting offsets in the output buffer.
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 760 238" width="760" height="238" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrsp" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#525c78"/>
+    </marker>
+  </defs>
+
+  <!-- Table titles -->
+  <text x="112" y="10" text-anchor="middle" fill="#7a84a0" font-size="8">before spine — raw counts</text>
+  <text x="390" y="10" text-anchor="middle" fill="#7a84a0" font-size="8">after spine — exclusive prefix sums (one workgroup per digit column)</text>
+
+  <!-- Column headers (before): d=0, d=1, d=2, d=3, …, d=255 -->
+  <text x="44"  y="22" text-anchor="middle" fill="#525c78" font-size="8">d=0</text>
+  <text x="80"  y="22" text-anchor="middle" fill="#525c78" font-size="8">d=1</text>
+  <text x="116" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=2</text>
+  <text x="153" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=3</text>
+  <text x="175" y="22" fill="#525c78" font-size="7">…</text>
+  <text x="203" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=255</text>
+  <!-- Column headers (after): d=0, d=1, d=2, d=3, …, d=255 -->
+  <text x="289" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=0</text>
+  <text x="335" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=1</text>
+  <text x="381" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=2</text>
+  <text x="427" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=3</text>
+  <text x="451" y="22" fill="#525c78" font-size="7">…</text>
+  <text x="485" y="22" text-anchor="middle" fill="#525c78" font-size="8">d=255</text>
+
+  <!-- ── P₀  y=28 ── -->
+  <text x="13" y="43" text-anchor="middle" fill="#7a84a0" font-size="9">P₀</text>
+  <rect x="26"  y="28" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="62"  y="28" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="98"  y="28" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="134" y="28" width="38" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="182" y="28" width="42" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="44"  y="43" text-anchor="middle" fill="#f7a24e" font-size="10">17</text>
+  <text x="80"  y="43" text-anchor="middle" fill="#f7a24e" font-size="10">4</text>
+  <text x="116" y="43" text-anchor="middle" fill="#f7a24e" font-size="10">0</text>
+  <text x="153" y="43" text-anchor="middle" fill="#f7a24e" font-size="10">203</text>
+  <text x="175" y="43" fill="#525c78" font-size="7">…</text>
+  <text x="203" y="43" text-anchor="middle" fill="#f7a24e" font-size="10">14</text>
+  <line x1="226" y1="39" x2="266" y2="39" stroke="#525c78" stroke-width="1.5" marker-end="url(#arrsp)"/>
+  <rect x="268" y="28" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="310" y="28" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="360" y="28" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="402" y="28" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="462" y="28" width="46" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="289" y="43" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+  <text x="335" y="43" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+  <text x="381" y="43" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+  <text x="427" y="43" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+  <text x="451" y="43" fill="#525c78" font-size="7">…</text>
+  <text x="485" y="43" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+
+  <!-- ── P₁  y=53 ── -->
+  <text x="13" y="68" text-anchor="middle" fill="#7a84a0" font-size="9">P₁</text>
+  <rect x="26"  y="53" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="62"  y="53" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="98"  y="53" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="134" y="53" width="38" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="182" y="53" width="42" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="44"  y="68" text-anchor="middle" fill="#f7a24e" font-size="10">22</text>
+  <text x="80"  y="68" text-anchor="middle" fill="#f7a24e" font-size="10">8</text>
+  <text x="116" y="68" text-anchor="middle" fill="#f7a24e" font-size="10">1</text>
+  <text x="153" y="68" text-anchor="middle" fill="#f7a24e" font-size="10">190</text>
+  <text x="175" y="68" fill="#525c78" font-size="7">…</text>
+  <text x="203" y="68" text-anchor="middle" fill="#f7a24e" font-size="10">9</text>
+  <line x1="226" y1="64" x2="266" y2="64" stroke="#525c78" stroke-width="1.5" marker-end="url(#arrsp)"/>
+  <rect x="268" y="53" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="310" y="53" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="360" y="53" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="402" y="53" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="462" y="53" width="46" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="289" y="68" text-anchor="middle" fill="#56cfad" font-size="10">17</text>
+  <text x="335" y="68" text-anchor="middle" fill="#56cfad" font-size="10">4</text>
+  <text x="381" y="68" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+  <text x="427" y="68" text-anchor="middle" fill="#56cfad" font-size="10">203</text>
+  <text x="451" y="68" fill="#525c78" font-size="7">…</text>
+  <text x="485" y="68" text-anchor="middle" fill="#56cfad" font-size="10">14</text>
+
+  <!-- ── P₂  y=78 ── -->
+  <text x="13" y="93" text-anchor="middle" fill="#7a84a0" font-size="9">P₂</text>
+  <rect x="26"  y="78" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="62"  y="78" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="98"  y="78" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="134" y="78" width="38" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="182" y="78" width="42" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="44"  y="93" text-anchor="middle" fill="#f7a24e" font-size="10">19</text>
+  <text x="80"  y="93" text-anchor="middle" fill="#f7a24e" font-size="10">5</text>
+  <text x="116" y="93" text-anchor="middle" fill="#f7a24e" font-size="10">2</text>
+  <text x="153" y="93" text-anchor="middle" fill="#f7a24e" font-size="10">197</text>
+  <text x="175" y="93" fill="#525c78" font-size="7">…</text>
+  <text x="203" y="93" text-anchor="middle" fill="#f7a24e" font-size="10">17</text>
+  <line x1="226" y1="89" x2="266" y2="89" stroke="#525c78" stroke-width="1.5" marker-end="url(#arrsp)"/>
+  <rect x="268" y="78" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="310" y="78" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="360" y="78" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="402" y="78" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="462" y="78" width="46" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="289" y="93" text-anchor="middle" fill="#56cfad" font-size="10">39</text>
+  <text x="335" y="93" text-anchor="middle" fill="#56cfad" font-size="10">12</text>
+  <text x="381" y="93" text-anchor="middle" fill="#56cfad" font-size="10">1</text>
+  <text x="427" y="93" text-anchor="middle" fill="#56cfad" font-size="10">393</text>
+  <text x="451" y="93" fill="#525c78" font-size="7">…</text>
+  <text x="485" y="93" text-anchor="middle" fill="#56cfad" font-size="10">23</text>
+
+  <!-- ── P₃  y=103 ── -->
+  <text x="13" y="118" text-anchor="middle" fill="#7a84a0" font-size="9">P₃</text>
+  <rect x="26"  y="103" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="62"  y="103" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="98"  y="103" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="134" y="103" width="38" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="182" y="103" width="42" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="44"  y="118" text-anchor="middle" fill="#f7a24e" font-size="10">31</text>
+  <text x="80"  y="118" text-anchor="middle" fill="#f7a24e" font-size="10">7</text>
+  <text x="116" y="118" text-anchor="middle" fill="#f7a24e" font-size="10">0</text>
+  <text x="153" y="118" text-anchor="middle" fill="#f7a24e" font-size="10">182</text>
+  <text x="175" y="118" fill="#525c78" font-size="7">…</text>
+  <text x="203" y="118" text-anchor="middle" fill="#f7a24e" font-size="10">12</text>
+  <line x1="226" y1="114" x2="266" y2="114" stroke="#525c78" stroke-width="1.5" marker-end="url(#arrsp)"/>
+  <rect x="268" y="103" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="310" y="103" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="360" y="103" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="402" y="103" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="462" y="103" width="46" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="289" y="118" text-anchor="middle" fill="#56cfad" font-size="10">58</text>
+  <text x="335" y="118" text-anchor="middle" fill="#56cfad" font-size="10">17</text>
+  <text x="381" y="118" text-anchor="middle" fill="#56cfad" font-size="10">3</text>
+  <text x="427" y="118" text-anchor="middle" fill="#56cfad" font-size="10">590</text>
+  <text x="451" y="118" fill="#525c78" font-size="7">…</text>
+  <text x="485" y="118" text-anchor="middle" fill="#56cfad" font-size="10">40</text>
+
+  <!-- ── P₄  y=128 ── -->
+  <text x="13" y="143" text-anchor="middle" fill="#7a84a0" font-size="9">P₄</text>
+  <rect x="26"  y="128" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="62"  y="128" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="98"  y="128" width="36" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="134" y="128" width="38" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="182" y="128" width="42" height="22" rx="3" fill="#1a1d27" stroke="#f7a24e"/>
+  <text x="44"  y="143" text-anchor="middle" fill="#f7a24e" font-size="10">8</text>
+  <text x="80"  y="143" text-anchor="middle" fill="#f7a24e" font-size="10">3</text>
+  <text x="116" y="143" text-anchor="middle" fill="#f7a24e" font-size="10">1</text>
+  <text x="153" y="143" text-anchor="middle" fill="#f7a24e" font-size="10">199</text>
+  <text x="175" y="143" fill="#525c78" font-size="7">…</text>
+  <text x="203" y="143" text-anchor="middle" fill="#f7a24e" font-size="10">8</text>
+  <line x1="226" y1="139" x2="266" y2="139" stroke="#525c78" stroke-width="1.5" marker-end="url(#arrsp)"/>
+  <rect x="268" y="128" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="310" y="128" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="360" y="128" width="42" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="402" y="128" width="50" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="462" y="128" width="46" height="22" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="289" y="143" text-anchor="middle" fill="#56cfad" font-size="10">89</text>
+  <text x="335" y="143" text-anchor="middle" fill="#56cfad" font-size="10">24</text>
+  <text x="381" y="143" text-anchor="middle" fill="#56cfad" font-size="10">3</text>
+  <text x="427" y="143" text-anchor="middle" fill="#56cfad" font-size="10">772</text>
+  <text x="451" y="143" fill="#525c78" font-size="7">…</text>
+  <text x="485" y="143" text-anchor="middle" fill="#56cfad" font-size="10">52</text>
+
+  <!-- "…" row -->
+  <text x="13"  y="162" text-anchor="middle" fill="#525c78" font-size="8">…</text>
+  <text x="240" y="162" text-anchor="middle" fill="#525c78" font-size="8">… 1,000 rows total (one per partition)</text>
+  <text x="462" y="162" text-anchor="middle" fill="#525c78" font-size="8">…</text>
+
+  <!-- Global histogram -->
+  <text x="10" y="178" fill="#7a84a0" font-size="9">globalHistogram — digit start offsets in the output buffer (exclusive prefix of digit totals)</text>
+  <rect x="10"  y="184" width="68" height="26" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="82"  y="184" width="84" height="26" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="170" y="184" width="84" height="26" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="258" y="184" width="84" height="26" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="346" y="184" width="40"  height="26" rx="3" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="394" y="184" width="100" height="26" rx="3" fill="#1a1d27" stroke="#56cfad"/>
+  <text x="44"  y="194" text-anchor="middle" fill="#7a84a0" font-size="8">d=0</text>
+  <text x="124" y="194" text-anchor="middle" fill="#7a84a0" font-size="8">d=1</text>
+  <text x="212" y="194" text-anchor="middle" fill="#7a84a0" font-size="8">d=2</text>
+  <text x="300" y="194" text-anchor="middle" fill="#7a84a0" font-size="8">d=3</text>
+  <text x="366" y="194" text-anchor="middle" fill="#525c78" font-size="8">…</text>
+  <text x="444" y="194" text-anchor="middle" fill="#7a84a0" font-size="8">d=255</text>
+  <text x="44"  y="205" text-anchor="middle" fill="#56cfad" font-size="10">0</text>
+  <text x="124" y="205" text-anchor="middle" fill="#56cfad" font-size="10">16,023</text>
+  <text x="212" y="205" text-anchor="middle" fill="#56cfad" font-size="10">32,071</text>
+  <text x="300" y="205" text-anchor="middle" fill="#56cfad" font-size="10">48,109</text>
+  <text x="444" y="205" text-anchor="middle" fill="#56cfad" font-size="9">4,079,981</text>
+
+  <!-- Note box -->
+  <rect x="10" y="216" width="740" height="20" rx="5" fill="#12141e" stroke="#2e3248" stroke-dasharray="4 2"/>
+  <text x="375" y="230" text-anchor="middle" fill="#525c78" font-size="9">Multi-level scan: WavePrefixSum per subgroup + inter-wave reduction in shared memory · supports 32-lane and 64-lane subgroups at runtime</text>
+</svg>
+</div>
+
+<p>
+  After the spine, <code>partitionHistogram[p][d]</code> holds the count of keys with digit <code>d</code>
+  in all partitions <em>before</em> partition <code>p</code>. Combined with <code>globalHistogram[d]</code>,
+  this gives every key its exact destination slot.
+</p>
+
+<h3>Stage 3 — Downsweep (Scatter)</h3>
+
+<p>
+  Each workgroup owns one 4096-element partition and writes every key (and optionally its
+  value) to its sorted position.
+  Within each wave (subgroup), lanes are ranked among peers sharing the same digit
+  using a ballot bitmask — no shared-memory atomics required:
+</p>
+
+<!-- Wave ballot lane diagram -->
+<div class="diagram">
+<svg viewBox="0 0 830 128" width="760" height="128" xmlns="http://www.w3.org/2000/svg">
+  <!-- column width = (760 - 70) / 8 = 86.25 → 86; viewBox extended to 830 to show "…" -->
+  <!-- Row headers -->
+  <text x="10" y="30" fill="#7a84a0" font-size="9" dominant-baseline="middle">Lane</text>
+  <text x="10" y="66" fill="#7a84a0" font-size="9" dominant-baseline="middle">Digit</text>
+  <text x="10" y="102" fill="#7a84a0" font-size="9" dominant-baseline="middle">Rank</text>
+
+  <!-- Lane cells (8 lanes, x = 70 + i*86) -->
+  <!-- Digits: 5 2 5 7 5 2 5 1  → same-digit groups: 5={0,2,4,6}, 2={1,5}, 7={3}, 1={7} -->
+
+  <!-- Lane backgrounds (digit=5 highlighted) -->
+  <rect x="70"  y="52" width="86" height="28" rx="4" fill="#221e40" stroke="#7c6af7"/>
+  <rect x="156" y="52" width="86" height="28" rx="4" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="242" y="52" width="86" height="28" rx="4" fill="#221e40" stroke="#7c6af7"/>
+  <rect x="328" y="52" width="86" height="28" rx="4" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="414" y="52" width="86" height="28" rx="4" fill="#221e40" stroke="#7c6af7"/>
+  <rect x="500" y="52" width="86" height="28" rx="4" fill="#1a1d27" stroke="#2e3248"/>
+  <rect x="586" y="52" width="86" height="28" rx="4" fill="#221e40" stroke="#7c6af7"/>
+  <rect x="672" y="52" width="86" height="28" rx="4" fill="#1a1d27" stroke="#2e3248"/>
+
+  <!-- Lane numbers -->
+  <text x="113" y="30" text-anchor="middle" fill="#525c78" font-size="11">0</text>
+  <text x="199" y="30" text-anchor="middle" fill="#525c78" font-size="11">1</text>
+  <text x="285" y="30" text-anchor="middle" fill="#525c78" font-size="11">2</text>
+  <text x="371" y="30" text-anchor="middle" fill="#525c78" font-size="11">3</text>
+  <text x="457" y="30" text-anchor="middle" fill="#525c78" font-size="11">4</text>
+  <text x="543" y="30" text-anchor="middle" fill="#525c78" font-size="11">5</text>
+  <text x="629" y="30" text-anchor="middle" fill="#525c78" font-size="11">6</text>
+  <text x="715" y="30" text-anchor="middle" fill="#525c78" font-size="11">7</text>
+  <text x="772" y="30" text-anchor="middle" fill="#525c78" font-size="11">…</text>
+
+  <!-- Digit values -->
+  <text x="113" y="70" text-anchor="middle" fill="#7c6af7" font-size="14" font-weight="bold">5</text>
+  <text x="199" y="70" text-anchor="middle" fill="#7a84a0" font-size="14">2</text>
+  <text x="285" y="70" text-anchor="middle" fill="#7c6af7" font-size="14" font-weight="bold">5</text>
+  <text x="371" y="70" text-anchor="middle" fill="#7a84a0" font-size="14">7</text>
+  <text x="457" y="70" text-anchor="middle" fill="#7c6af7" font-size="14" font-weight="bold">5</text>
+  <text x="543" y="70" text-anchor="middle" fill="#7a84a0" font-size="14">2</text>
+  <text x="629" y="70" text-anchor="middle" fill="#7c6af7" font-size="14" font-weight="bold">5</text>
+  <text x="715" y="70" text-anchor="middle" fill="#7a84a0" font-size="14">1</text>
+  <text x="772" y="70" text-anchor="middle" fill="#525c78" font-size="14">…</text>
+
+  <!-- Rank values (among same-digit peers) -->
+  <text x="113" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">0</text>
+  <text x="199" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">0</text>
+  <text x="285" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">1</text>
+  <text x="371" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">0</text>
+  <text x="457" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">2</text>
+  <text x="543" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">1</text>
+  <text x="629" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">3</text>
+  <text x="715" y="108" text-anchor="middle" fill="#56cfad" font-size="14" font-weight="bold">0</text>
+  <text x="772" y="108" text-anchor="middle" fill="#525c78" font-size="14">…</text>
+
+  <!-- Ballot annotation for digit=5 -->
+  <text x="70" y="122" fill="#7c6af7" font-size="8">digit=5 ballot mask: 0b01010101 (lanes 0,2,4,6)  →  rank = popcount(mask &amp; bits below my lane)  ·  showing 8 of 32 lanes</text>
+</svg>
+</div>
+
+<p>
+  The final output index for each key is the sum of three independent offsets.
+  Below is a concrete example for a key with digit = 5, at N = 4,096,000 with uniform random data:
+</p>
+
+<!-- Scatter index diagram with concrete numbers -->
+<div class="diagram">
+<svg viewBox="0 0 760 110" width="760" height="110" xmlns="http://www.w3.org/2000/svg">
+  <!-- Three offset boxes -->
+  <rect x="10"  y="10" width="185" height="70" rx="6" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="215" y="10" width="185" height="70" rx="6" fill="#1a1d27" stroke="#f7a24e"/>
+  <rect x="420" y="10" width="145" height="70" rx="6" fill="#1a1d27" stroke="#7c6af7"/>
+  <!-- Result box -->
+  <rect x="585" y="10" width="165" height="70" rx="6" fill="#1a1d27" stroke="#2e3248"/>
+
+  <!-- Labels -->
+  <text x="102" y="26" text-anchor="middle" fill="#56cfad" font-size="9">globalHistogram[digit=5]</text>
+  <text x="307" y="26" text-anchor="middle" fill="#f7a24e" font-size="9">partitionHistogram[p=3][5]</text>
+  <text x="492" y="26" text-anchor="middle" fill="#7c6af7" font-size="9">localRank</text>
+  <text x="667" y="26" text-anchor="middle" fill="#dce3f0" font-size="9">dstIndex</text>
+
+  <!-- Big numbers -->
+  <text x="102" y="56" text-anchor="middle" fill="#dce3f0" font-size="20" font-weight="bold">80,019</text>
+  <text x="307" y="56" text-anchor="middle" fill="#dce3f0" font-size="20" font-weight="bold">384</text>
+  <text x="492" y="56" text-anchor="middle" fill="#dce3f0" font-size="20" font-weight="bold">7</text>
+  <text x="667" y="56" text-anchor="middle" fill="#56cfad" font-size="20" font-weight="bold">80,410</text>
+
+  <!-- Subtitles -->
+  <text x="102" y="72" text-anchor="middle" fill="#525c78" font-size="8">≈ 5 × N/256 — start offset for digit=5</text>
+  <text x="307" y="72" text-anchor="middle" fill="#525c78" font-size="8">digit-5 keys in P₀+P₁+P₂</text>
+  <text x="492" y="72" text-anchor="middle" fill="#525c78" font-size="8">8th digit-5 in this partition</text>
+  <text x="667" y="72" text-anchor="middle" fill="#525c78" font-size="8">80,019 + 384 + 7</text>
+
+  <!-- Operators -->
+  <text x="200" y="52" text-anchor="middle" fill="#7a84a0" font-size="18">+</text>
+  <text x="405" y="52" text-anchor="middle" fill="#7a84a0" font-size="18">+</text>
+  <text x="570" y="52" text-anchor="middle" fill="#7a84a0" font-size="18">=</text>
+
+  <!-- Note -->
+  <text x="380" y="100" text-anchor="middle" fill="#525c78" font-size="8">
+    For key-value sorts, dstIndex is saved to shared memory during key scatter and reused to scatter the value — no recomputation needed.
+  </text>
+</svg>
+</div>
+
+<div class="callout tip">
+  <strong>Bank-conflict avoidance:</strong> The downsweep allocates
+  <code>localHistogram[17 × 256]</code> instead of <code>16 × 256</code> in shared memory
+  so successive rows map to different banks and shared memory accesses are fully parallel.
+</div>
+
+<h3>Ping-Pong Buffer Strategy</h3>
+
+<p>
+  The library alternates read/write buffers each pass so the final result lands back in the
+  user-supplied buffer after pass 3:
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 760 100" width="760" height="100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrd"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#7c6af7"/>
+    </marker>
+    <marker id="arrd2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#56cfad"/>
+    </marker>
+  </defs>
+  <rect x="10"  y="12" width="110" height="30" rx="5" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="340" y="12" width="110" height="30" rx="5" fill="#1a1d27" stroke="#56cfad"/>
+  <rect x="670" y="12" width="80"  height="30" rx="5" fill="#1a1d27" stroke="#56cfad" stroke-width="2"/>
+  <text x="65"  y="28" text-anchor="middle" fill="#56cfad" font-size="9">userBuffer</text>
+  <text x="65"  y="38" text-anchor="middle" fill="#525c78" font-size="8">read</text>
+  <text x="395" y="28" text-anchor="middle" fill="#56cfad" font-size="9">userBuffer</text>
+  <text x="395" y="38" text-anchor="middle" fill="#525c78" font-size="8">read</text>
+  <text x="710" y="28" text-anchor="middle" fill="#56cfad" font-size="9">userBuffer</text>
+  <text x="710" y="38" text-anchor="middle" fill="#56cfad" font-size="8">✓ final</text>
+  <rect x="175" y="58" width="110" height="30" rx="5" fill="#1a1d27" stroke="#7c6af7"/>
+  <rect x="505" y="58" width="110" height="30" rx="5" fill="#1a1d27" stroke="#7c6af7"/>
+  <text x="230" y="74" text-anchor="middle" fill="#7c6af7" font-size="9">storageBuffer</text>
+  <text x="230" y="84" text-anchor="middle" fill="#525c78" font-size="8">write</text>
+  <text x="560" y="74" text-anchor="middle" fill="#7c6af7" font-size="9">storageBuffer</text>
+  <text x="560" y="84" text-anchor="middle" fill="#525c78" font-size="8">write</text>
+  <text x="120" y="50" fill="#7a84a0" font-size="8" text-anchor="middle">pass 0 ↓</text>
+  <text x="285" y="50" fill="#7a84a0" font-size="8" text-anchor="middle">pass 1 ↑</text>
+  <text x="450" y="50" fill="#7a84a0" font-size="8" text-anchor="middle">pass 2 ↓</text>
+  <text x="615" y="50" fill="#7a84a0" font-size="8" text-anchor="middle">pass 3 ↑</text>
+  <line x1="120" y1="42" x2="175" y2="58" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrd)"/>
+  <line x1="285" y1="58" x2="340" y2="42" stroke="#56cfad" stroke-width="1.5" marker-end="url(#arrd2)"/>
+  <line x1="450" y1="42" x2="505" y2="58" stroke="#7c6af7" stroke-width="1.5" marker-end="url(#arrd)"/>
+  <line x1="615" y1="58" x2="670" y2="42" stroke="#56cfad" stroke-width="1.5" marker-end="url(#arrd2)"/>
+</svg>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PERFORMANCE -->
+<h2>Performance</h2>
+
+<p>
+  Test environment: Windows, NVIDIA GeForce RTX 5080, CUDA 13.2 / CUB v3.2.0 (Onesweep default).
+  Median throughput at N = 2²⁵ = 33,554,432 elements, 1 warmup + 10 timed runs.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Sort type</th>
+      <th>This library (Vulkan)</th>
+      <th>Fuchsia (Vulkan)</th>
+      <th>CUB Onesweep (CUDA)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>32-bit keys only</td>
+      <td><span class="hl">10.66 GItems/s</span></td>
+      <td>13.58 GItems/s (1.27×)</td>
+      <td>22.40 GItems/s (2.10×)</td>
+    </tr>
+    <tr>
+      <td>32-bit key-value</td>
+      <td><span class="hl">9.04 GItems/s</span></td>
+      <td>5.02 GItems/s (0.56×)</td>
+      <td>11.68 GItems/s (1.29×)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  This library outperforms Fuchsia on key-value sorts because it scatters keys and values
+  as two separate 32-bit buffers — Fuchsia treats them as a single 64-bit key, doubling
+  per-pass memory traffic.
+</p>
+
+<h3>Vulkan Implementation Details</h3>
+
+<table>
+  <thead>
+    <tr><th>Property</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Workgroup size</td><td><code>512</code> threads</td></tr>
+    <tr><td>Subgroup sizes</td><td>32 lanes and 64 lanes (runtime branch via wave primitives)</td></tr>
+    <tr><td>Shared memory — upsweep</td><td><code>localHistogram[256]</code> u32 = 1 KB per workgroup</td></tr>
+    <tr><td>Shared memory — downsweep</td><td><code>localHistogram[17 × 256]</code> u32 + <code>localHistogramSum[256]</code> = 18 KB</td></tr>
+    <tr><td>Descriptor binding</td><td><code>vkCmdPushDescriptorSet</code> per pass (Vulkan 1.4)</td></tr>
+    <tr><td>Push constants</td><td>Pass index (0–3)</td></tr>
+    <tr><td>Memory barriers</td><td><code>VkMemoryBarrier2</code> between every dispatch</td></tr>
+    <tr><td>Shader language</td><td>Slang → SPIR-V (compiled with slangc 2026.11)</td></tr>
+    <tr><td>Device requirements</td><td>Vulkan 1.3 + <code>pushDescriptor</code> + <code>synchronization2</code></td></tr>
+  </tbody>
+</table>
+
+<h2>References</h2>
+<ul>
+  <li><a href="https://github.com/b0nes164/GPUSorting">GPUSorting</a> — CUDA kernel reference used as the algorithm basis</li>
+  <li><a href="https://github.com/juliusikkala/fuchsia_radix_sort">Fuchsia radix sort</a> — Vulkan comparison</li>
+  <li><a href="https://nvlabs.github.io/cub/">CUB Onesweep</a> — CUDA baseline</li>
+</ul>
+
+</main>
+</body>
+</html>

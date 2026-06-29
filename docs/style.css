@@ -1,0 +1,176 @@
+:root {
+  --bg:       #0f1117;
+  --surface:  #1a1d27;
+  --border:   #2e3248;
+  --accent:   #7c6af7;
+  --accent2:  #56cfad;
+  --accent3:  #f7a24e;
+  --text:     #dce3f0;
+  --muted:    #7a84a0;
+  --code-bg:  #12141e;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── header ── */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 2rem 2rem 1.6rem;
+  text-align: center;
+}
+header h1 { font-size: 2rem; letter-spacing: -0.5px; }
+header p  { color: var(--muted); margin-top: .4rem; }
+header .links {
+  margin-top: 1rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+header .links a {
+  background: var(--border);
+  border-radius: 6px;
+  padding: .3rem .8rem;
+  font-size: .85rem;
+  color: var(--text);
+}
+header .links a:hover { background: var(--accent); color: #fff; text-decoration: none; }
+
+/* ── main ── */
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 5rem;
+}
+
+/* ── typography ── */
+h2 {
+  font-size: 1.45rem;
+  margin: 2.8rem 0 1rem;
+  padding-bottom: .4rem;
+  border-bottom: 1px solid var(--border);
+  color: #fff;
+}
+h2:first-child { margin-top: 0; }
+h3 { font-size: 1.1rem; margin: 1.8rem 0 .6rem; color: var(--accent2); }
+p  { margin-bottom: .9rem; }
+ul, ol { padding-left: 1.5rem; margin-bottom: .9rem; }
+li { margin-bottom: .3rem; }
+
+/* ── code ── */
+code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .1em .4em;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: .88em;
+  color: var(--accent2);
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.2rem 1.4rem;
+  overflow-x: auto;
+  margin-bottom: 1.2rem;
+}
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #c9d1e0;
+  font-size: .88rem;
+  line-height: 1.6;
+}
+.kw  { color: #7c6af7; }
+.cm  { color: #525c78; font-style: italic; }
+.num { color: #f7a24e; }
+.fn  { color: #56cfad; }
+.str { color: #e8a07a; }
+
+/* ── callout ── */
+.callout {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: .9rem 1.2rem;
+  margin: 1.2rem 0;
+  font-size: .95rem;
+}
+.callout.tip  { border-color: var(--accent2); }
+.callout.warn { border-color: var(--accent3); }
+
+/* ── table ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.2rem 0;
+  font-size: .9rem;
+}
+th {
+  text-align: left;
+  background: var(--surface);
+  padding: .55rem .9rem;
+  border-bottom: 2px solid var(--border);
+  color: var(--muted);
+  font-weight: 600;
+}
+td {
+  padding: .5rem .9rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+
+/* ── diagram ── */
+.diagram {
+  overflow-x: auto;
+  margin: 1.4rem 0;
+}
+svg text { font-family: "JetBrains Mono", "Fira Code", monospace; }
+
+/* ── stat cards ── */
+.card-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.4rem 0;
+}
+.card {
+  flex: 1;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+}
+.card .label {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: .4rem;
+}
+.card .value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.card p { font-size: .85rem; color: var(--muted); margin: .3rem 0 0; }
+
+/* ── performance highlight ── */
+.hl { color: var(--accent2); font-weight: 600; }
+
