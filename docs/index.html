@@ -80,21 +80,50 @@ function runPass(keys, pass, log2R, PS) {
     for (let p = 0; p < P; p++) { pPS[p][d] = acc; acc += pH[p][d]; }
   }
 
-  // Downsweep — scatter
-  const out = new Array(N);
-  const rows = []; // for scatter detail table
+  // Downsweep — local prefix sum within each partition (where each digit group starts in smem)
+  const localPrefix = Array.from({length: P}, (_, p) => {
+    const prefix = new Int32Array(R);
+    let acc = 0;
+    for (let d = 0; d < R; d++) { prefix[d] = acc; acc += pH[p][d]; }
+    return prefix;
+  });
+
+  // Downsweep — localOffsets: rank within digit group (before adding localPrefix)
+  // Mirrors shader: localOffsets[i] = waveOffset, before += localHistogram[...]
+  const localOffsets = new Array(P * PS);
   for (let p = 0; p < P; p++) {
     const lc = new Int32Array(R);
-    for (let i = p * PS; i < Math.min((p+1)*PS, N); i++) {
+    for (let i = p * PS; i < (p+1) * PS; i++) {
       const d = digit(keys[i], pass, log2R);
-      const dst = gPS[d] + pPS[p][d] + lc[d];
-      out[dst] = keys[i];
-      rows.push({from: i, to: dst, key: keys[i], d, g: gPS[d], pp: pPS[p][d], lr: lc[d], p});
+      localOffsets[i] = lc[d];
       lc[d]++;
     }
   }
 
-  return {pH, gH, gPS, pPS, out, rows};
+  // Downsweep — local sort within each partition (shared memory rearrangement)
+  const localSorted = new Array(P * PS);
+  for (let p = 0; p < P; p++) {
+    const slice = keys.slice(p * PS, (p+1) * PS);
+    slice.sort((a, b) => digit(a, pass, log2R) - digit(b, pass, log2R));
+    for (let j = 0; j < PS; j++) localSorted[p * PS + j] = slice[j];
+  }
+
+  // Downsweep — scatter from locally-sorted order to global
+  const out = new Array(P * PS);
+  const rows = [];
+  for (let p = 0; p < P; p++) {
+    const lc = new Int32Array(R);
+    for (let j = 0; j < PS; j++) {
+      const key = localSorted[p * PS + j];
+      const d = digit(key, pass, log2R);
+      const dst = gPS[d] + pPS[p][d] + lc[d];
+      out[dst] = key;
+      rows.push({localPos: p * PS + j, to: dst, key, d, g: gPS[d], pp: pPS[p][d], lr: lc[d], p});
+      lc[d]++;
+    }
+  }
+
+  return {pH, gH, gPS, pPS, localPrefix, localOffsets, localSorted, out, rows};
 }
 
 function sort(keys, log2R, numPasses, PS) {
@@ -160,7 +189,7 @@ function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null
 }
 
 // ── Render: keys as partition rows ──────────────────────────────────────────
-function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length) {
+function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length, sublabels = null) {
   const grid = mk('div', 'key-grid');
   const P = Math.ceil(keys.length / PS);
   for (let p = 0; p < P; p++) {
@@ -172,8 +201,9 @@ function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length) {
       const d = digit(keys[i], pass, log2R);
       const box = mk('div', isPad ? 'key-box pad' : 'key-box');
       box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
+      const sub = sublabels ? sublabels[i] : (showDigit && !isPad ? `d=${d}` : null);
       box.innerHTML = `<span class="kv">${keys[i]}</span>` +
-        (showDigit && !isPad ? `<span class="kd">d=${d}</span>` : '');
+        (sub != null ? `<span class="kd">${sub}</span>` : '');
       row.appendChild(box);
     }
     grid.appendChild(row);
@@ -237,13 +267,13 @@ function singleRow(vals, R, label) {
 function scatterTable(rows, R) {
   const t = mk('table', 'stable');
   const hr = mk('tr');
-  ['idx','key','digit','global\noffset','partition\noffset','local\nrank','→ dst'].forEach(h => ap(hr, mk('th',null,h)));
+  ['local pos','key','digit','global\noffset','partition\noffset','local\nrank','→ dst'].forEach(h => ap(hr, mk('th',null,h)));
   ap(t, ap(mk('thead'), hr));
   const tb = mk('tbody');
   rows.forEach(r => {
     const tr = mk('tr');
     const c = dColor(r.d, R);
-    [r.from, r.key, r.d, r.g, r.pp, r.lr, r.to].forEach((v, ci) => {
+    [r.localPos, r.key, r.d, r.g, r.pp, r.lr, r.to].forEach((v, ci) => {
       const td = mk('td'); td.textContent = v;
       if (ci === 2) td.style.color = c;
       if (ci === 6) { td.style.color = 'var(--accent2)'; td.style.fontWeight = 'bold'; }
@@ -294,7 +324,7 @@ function render() {
   app.appendChild(inputSec);
 
   // Single pass
-  const {input, pH, gH, gPS, pPS, out, rows} = passes[0];
+  const {input, pH, gH, gPS, pPS, localPrefix, localOffsets, localSorted, out, rows} = passes[0];
   const bitLo = 0, bitHi = log2R - 1;
 
   // Input with digits
@@ -323,12 +353,27 @@ function render() {
 
   // Downsweep
   const s3 = mk('div');
-  ap(s3, mk('h3', null, 'Stage 3 · Downsweep — Scatter'));
+  ap(s3, mk('h3', null, 'Stage 3 · Downsweep'));
+
+  ap(s3, mk('div', 'step-head', 'Step 1 · Local sort (shared memory)'));
+  ap(s3, mk('div', 'note', 'Each partition independently sorts its keys by digit into shared memory.'));
+  ap(s3, mk('div', 'note', 'Before (subscript = rank within digit group):'));
+  s3.appendChild(keyGrid(input, 0, log2R, R, false, PS, N, localOffsets));
+  ap(s3, mk('div', 'note', 'Local digit start offsets in shared memory (exclusive prefix sum within partition):'));
+  s3.appendChild(histTable(localPrefix, R, rowLabels));
+  const localSortedRanks = Array.from({length: P * PS}, (_, i) => {
+    const p = Math.floor(i / PS), j = i % PS;
+    const d = digit(localSorted[i], 0, log2R);
+    return j - localPrefix[p][d];
+  });
+  ap(s3, mk('div', 'note', 'After local sort (subscript = rank within digit group):'));
+  s3.appendChild(keyGrid(localSorted, 0, log2R, R, false, PS, N, localSortedRanks));
+
+  ap(s3, mk('div', 'step-head', 'Step 2 · Write to global memory'));
   ap(s3, mk('div', 'note', 'dst = globalOffset[d] + partitionOffset[p][d] + localRank'));
-  ap(s3, mk('div', 'note', 'Before:'));
-  s3.appendChild(keyGrid(input, 0, log2R, R, false, PS, N));
-  ap(s3, mk('div', 'note', 'After:'));
+  ap(s3, mk('div', 'note', 'Read sequentially from each partition\'s sorted shared memory, scatter to global:'));
   s3.appendChild(keyRow(out, 0, log2R, R, false, 0, null, N));
+
   const det = mk('details');
   ap(det, mk('summary', null, 'Show scatter detail table'));
   det.appendChild(scatterTable(rows, R));
