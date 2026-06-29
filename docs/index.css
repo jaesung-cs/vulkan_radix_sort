@@ -187,3 +187,15 @@ svg text { font-family: "JetBrains Mono", "Fira Code", monospace; }
 
 summary { cursor: pointer; color: var(--muted); font-size: 0.82rem; margin: 0.3rem 0; }
 details[open] summary { color: var(--text); }
+
+/* ── Hover highlighting ──────────────────────────────────────────────────────── */
+.key-box { cursor: default; transition: opacity 0.12s, box-shadow 0.12s; }
+#app.hovering .key-box:not(.hl) { opacity: 0.15; }
+.key-box.hl { box-shadow: 0 0 0 2px var(--accent2) !important; opacity: 1 !important; }
+
+.htable td, .htable th { transition: opacity 0.12s; }
+#app.hovering .htable td:not(.hl-cell):not(.hl-digit) { opacity: 0.15; }
+#app.hovering .htable th:not(.hl-digit) { opacity: 0.15; }
+.htable td.hl-digit { opacity: 1; }
+.htable th.hl-digit { opacity: 1; }
+.htable td.hl-cell  { opacity: 1; outline: 2px solid var(--accent2); outline-offset: -2px; }

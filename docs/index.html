@@ -100,30 +100,37 @@ function runPass(keys, pass, log2R, PS) {
     }
   }
 
-  // Downsweep — local sort within each partition (shared memory rearrangement)
+  // Downsweep — local sort within each partition, tracking original indices
   const localSorted = new Array(P * PS);
+  const localSortedIdx = new Array(P * PS);
   for (let p = 0; p < P; p++) {
-    const slice = keys.slice(p * PS, (p+1) * PS);
-    slice.sort((a, b) => digit(a, pass, log2R) - digit(b, pass, log2R));
-    for (let j = 0; j < PS; j++) localSorted[p * PS + j] = slice[j];
+    const slice = Array.from({length: PS}, (_, j) => ({key: keys[p*PS+j], idx: p*PS+j}));
+    slice.sort((a, b) => digit(a.key, pass, log2R) - digit(b.key, pass, log2R));
+    for (let j = 0; j < PS; j++) {
+      localSorted[p * PS + j]    = slice[j].key;
+      localSortedIdx[p * PS + j] = slice[j].idx;
+    }
   }
 
   // Downsweep — scatter from locally-sorted order to global
   const out = new Array(P * PS);
+  const outIdx = new Array(P * PS);
   const rows = [];
   for (let p = 0; p < P; p++) {
     const lc = new Int32Array(R);
     for (let j = 0; j < PS; j++) {
-      const key = localSorted[p * PS + j];
+      const li = p * PS + j;
+      const key = localSorted[li];
       const d = digit(key, pass, log2R);
       const dst = gPS[d] + pPS[p][d] + lc[d];
       out[dst] = key;
-      rows.push({localPos: p * PS + j, to: dst, key, d, g: gPS[d], pp: pPS[p][d], lr: lc[d], p});
+      outIdx[dst] = localSortedIdx[li];
+      rows.push({localPos: li, to: dst, key, d, g: gPS[d], pp: pPS[p][d], lr: lc[d], p});
       lc[d]++;
     }
   }
 
-  return {pH, gH, gPS, pPS, localPrefix, localOffsets, localSorted, out, rows};
+  return {pH, gH, gPS, pPS, localPrefix, localOffsets, localSortedIdx, localSorted, outIdx, out, rows};
 }
 
 function sort(keys, log2R, numPasses, PS) {
@@ -153,43 +160,26 @@ function ap(parent, ...children) {
 }
 
 // ── Render: key array ───────────────────────────────────────────────────────
-function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null, realN = keys.length) {
+function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null, realN = keys.length, origIndices = null, partitions = null) {
   const row = mk('div', 'key-row');
-  if (PS > 0) {
-    const P = Math.ceil(keys.length / PS);
-    for (let p = 0; p < P; p++) {
-      const group = mk('div', 'partition-group');
-      const lbl = mk('div', 'partition-lbl'); lbl.textContent = `P${p}`;
-      group.appendChild(lbl);
-      const boxes = mk('div', 'partition-boxes');
-      for (let i = p * PS; i < Math.min((p+1) * PS, keys.length); i++) {
-        const d = digit(keys[i], pass, log2R);
-        const box = mk('div', 'key-box');
-        box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
-        box.innerHTML = `<span class="kv">${keys[i]}</span>` +
-          (showDigit ? `<span class="kd">d=${d}</span>` : '');
-        boxes.appendChild(box);
-      }
-      group.appendChild(boxes);
-      row.appendChild(group);
-    }
-  } else {
-    keys.forEach((k, i) => {
-      const isPad = i >= realN;
-      const d = digit(k, pass, log2R);
-      const box = mk('div', isPad ? 'key-box pad' : 'key-box');
-      box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
-      const sub = isPad ? null : (sublabels ? sublabels[i] : (showDigit ? `d=${d}` : null));
-      box.innerHTML = `<span class="kv">${k}</span>` +
-        (sub ? `<span class="kd">${sub}</span>` : '');
-      row.appendChild(box);
-    });
-  }
+  keys.forEach((k, i) => {
+    const isPad = i >= realN;
+    const d = digit(k, pass, log2R);
+    const box = mk('div', isPad ? 'key-box pad' : 'key-box');
+    box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
+    box.dataset.keyId = origIndices ? origIndices[i] : i;
+    box.dataset.digit = d;
+    if (partitions) box.dataset.partition = partitions[i];
+    const sub = isPad ? null : (sublabels ? sublabels[i] : (showDigit ? `d=${d}` : null));
+    box.innerHTML = `<span class="kv">${k}</span>` +
+      (sub ? `<span class="kd">${sub}</span>` : '');
+    row.appendChild(box);
+  });
   return row;
 }
 
 // ── Render: keys as partition rows ──────────────────────────────────────────
-function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length, sublabels = null) {
+function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length, sublabels = null, origIndices = null) {
   const grid = mk('div', 'key-grid');
   const P = Math.ceil(keys.length / PS);
   for (let p = 0; p < P; p++) {
@@ -201,6 +191,9 @@ function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length, subla
       const d = digit(keys[i], pass, log2R);
       const box = mk('div', isPad ? 'key-box pad' : 'key-box');
       box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
+      box.dataset.keyId = origIndices ? origIndices[i] : i;
+      box.dataset.digit = d;
+      box.dataset.partition = p;
       const sub = sublabels ? sublabels[i] : (showDigit && !isPad ? `d=${d}` : null);
       box.innerHTML = `<span class="kv">${keys[i]}</span>` +
         (sub != null ? `<span class="kd">${sub}</span>` : '');
@@ -219,6 +212,7 @@ function histTable(data, R, rowLabels) {
   ap(hr, mk('th', null, ''));
   for (let d = 0; d < R; d++) {
     const th = mk('th'); th.style.color = dColor(d, R); th.textContent = `d=${d}`;
+    th.dataset.digit = d;
     hr.appendChild(th);
   }
   ap(t, ap(mk('thead'), hr));
@@ -231,6 +225,8 @@ function histTable(data, R, rowLabels) {
       const v = row[d];
       const td = mk('td');
       td.textContent = v;
+      td.dataset.digit = d;
+      td.dataset.partition = i;
       if (v > 0) td.style.cssText = `background:${dBg(d,R)};color:${dColor(d,R)}`;
       else td.style.color = 'var(--border)';
       tr.appendChild(td);
@@ -248,6 +244,7 @@ function singleRow(vals, R, label) {
   ap(hr, mk('th', null, ''));
   for (let d = 0; d < R; d++) {
     const th = mk('th'); th.style.color = dColor(d, R); th.textContent = `d=${d}`;
+    th.dataset.digit = d;
     hr.appendChild(th);
   }
   ap(t, ap(mk('thead'), hr));
@@ -256,6 +253,7 @@ function singleRow(vals, R, label) {
   for (let d = 0; d < R; d++) {
     const td = mk('td');
     td.textContent = vals[d];
+    td.dataset.digit = d;
     td.style.cssText = `background:${dBg(d,R)};color:${dColor(d,R)}`;
     tr.appendChild(td);
   }
@@ -324,7 +322,7 @@ function render() {
   app.appendChild(inputSec);
 
   // Single pass
-  const {input, pH, gH, gPS, pPS, localPrefix, localOffsets, localSorted, out, rows} = passes[0];
+  const {input, pH, gH, gPS, pPS, localPrefix, localOffsets, localSortedIdx, localSorted, outIdx, out, rows} = passes[0];
   const bitLo = 0, bitHi = log2R - 1;
 
   // Input with digits
@@ -355,24 +353,27 @@ function render() {
   const s3 = mk('div');
   ap(s3, mk('h3', null, 'Stage 3 · Downsweep'));
 
-  ap(s3, mk('div', 'step-head', 'Step 1 · Local sort (shared memory)'));
-  ap(s3, mk('div', 'note', 'Each partition independently sorts its keys by digit into shared memory.'));
-  ap(s3, mk('div', 'note', 'Before (subscript = rank within digit group):'));
-  s3.appendChild(keyGrid(input, 0, log2R, R, false, PS, N, localOffsets));
-  ap(s3, mk('div', 'note', 'Local digit start offsets in shared memory (exclusive prefix sum within partition):'));
-  s3.appendChild(histTable(localPrefix, R, rowLabels));
+  const step1 = mk('details'); step1.open = true;
+  ap(step1, mk('summary', 'step-head', 'Step 1 · Local sort (shared memory)'));
+  ap(step1, mk('div', 'note', 'Each partition independently sorts its keys by digit into shared memory.'));
+  ap(step1, mk('div', 'note', 'Before (subscript = rank within digit group):'));
+  step1.appendChild(keyGrid(input, 0, log2R, R, false, PS, N, localOffsets, null));
+  ap(step1, mk('div', 'note', 'Local digit start offsets in shared memory (exclusive prefix sum within partition):'));
+  step1.appendChild(histTable(localPrefix, R, rowLabels));
   const localSortedRanks = Array.from({length: P * PS}, (_, i) => {
     const p = Math.floor(i / PS), j = i % PS;
     const d = digit(localSorted[i], 0, log2R);
     return j - localPrefix[p][d];
   });
-  ap(s3, mk('div', 'note', 'After local sort (subscript = rank within digit group):'));
-  s3.appendChild(keyGrid(localSorted, 0, log2R, R, false, PS, N, localSortedRanks));
+  ap(step1, mk('div', 'note', 'After local sort (subscript = rank within digit group):'));
+  step1.appendChild(keyGrid(localSorted, 0, log2R, R, false, PS, N, localSortedRanks, localSortedIdx));
+  s3.appendChild(step1);
 
   ap(s3, mk('div', 'step-head', 'Step 2 · Write to global memory'));
   ap(s3, mk('div', 'note', 'dst = globalOffset[d] + partitionOffset[p][d] + localRank'));
   ap(s3, mk('div', 'note', 'Read sequentially from each partition\'s sorted shared memory, scatter to global:'));
-  s3.appendChild(keyRow(out, 0, log2R, R, false, 0, null, N));
+  const outPart = outIdx.map(id => Math.floor(id / PS));
+  s3.appendChild(keyRow(out, 0, log2R, R, false, 0, null, N, outIdx, outPart));
 
   const det = mk('details');
   ap(det, mk('summary', null, 'Show scatter detail table'));
@@ -383,9 +384,40 @@ function render() {
   // Sorted output
   const outSec = mk('div');
   ap(outSec, mk('h3', null, 'Sorted Output'));
-  outSec.appendChild(keyRow(sorted.slice(0, N), 0, log2R, R, false));
+  outSec.appendChild(keyRow(sorted.slice(0, N), 0, log2R, R, false, 0, null, N, outIdx.slice(0, N), outPart.slice(0, N)));
   app.appendChild(outSec);
 }
+
+// ── Hover highlighting ───────────────────────────────────────────────────────
+const app = document.getElementById('app');
+let _clearHL = null;
+function clearHL() {
+  app.classList.remove('hovering');
+  app.querySelectorAll('.hl, .hl-digit, .hl-cell')
+     .forEach(el => el.classList.remove('hl', 'hl-digit', 'hl-cell'));
+}
+app.addEventListener('mouseover', e => {
+  const box = e.target.closest('.key-box');
+  if (!box || box.dataset.keyId == null) return;
+  if (_clearHL) { clearTimeout(_clearHL); _clearHL = null; }
+  const keyId = box.dataset.keyId;
+  const digit  = box.dataset.digit;
+  const part   = box.dataset.partition;
+  app.classList.add('hovering');
+  app.querySelectorAll('.key-box').forEach(b =>
+    b.classList.toggle('hl', b.dataset.keyId === keyId));
+  app.querySelectorAll('[data-digit]').forEach(c => {
+    const dm = c.dataset.digit === digit;
+    const hasPart = c.dataset.partition !== undefined;
+    const pm = hasPart && c.dataset.partition === part;
+    c.classList.toggle('hl-cell',  dm && (!hasPart || pm));
+    c.classList.toggle('hl-digit', dm && hasPart && !pm);
+  });
+});
+app.addEventListener('mouseout', e => {
+  if (!e.target.closest('.key-box')) return;
+  _clearHL = setTimeout(clearHL, 80);
+});
 
 // ── Wire controls ────────────────────────────────────────────────────────────
 ['radix','nkeys','psize','seed'].forEach(id => {
