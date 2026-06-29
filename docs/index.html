@@ -124,7 +124,7 @@ function ap(parent, ...children) {
 }
 
 // ── Render: key array ───────────────────────────────────────────────────────
-function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null) {
+function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null, realN = keys.length) {
   const row = mk('div', 'key-row');
   if (PS > 0) {
     const P = Math.ceil(keys.length / PS);
@@ -146,10 +146,11 @@ function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null
     }
   } else {
     keys.forEach((k, i) => {
+      const isPad = i >= realN;
       const d = digit(k, pass, log2R);
-      const box = mk('div', 'key-box');
+      const box = mk('div', isPad ? 'key-box pad' : 'key-box');
       box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
-      const sub = sublabels ? sublabels[i] : (showDigit ? `d=${d}` : null);
+      const sub = isPad ? null : (sublabels ? sublabels[i] : (showDigit ? `d=${d}` : null));
       box.innerHTML = `<span class="kv">${k}</span>` +
         (sub ? `<span class="kd">${sub}</span>` : '');
       row.appendChild(box);
@@ -159,19 +160,20 @@ function keyRow(keys, pass, log2R, R, showDigit = true, PS = 0, sublabels = null
 }
 
 // ── Render: keys as partition rows ──────────────────────────────────────────
-function keyGrid(keys, pass, log2R, R, showDigit, PS) {
+function keyGrid(keys, pass, log2R, R, showDigit, PS, realN = keys.length) {
   const grid = mk('div', 'key-grid');
   const P = Math.ceil(keys.length / PS);
   for (let p = 0; p < P; p++) {
     const row = mk('div', 'key-grid-row');
     const lbl = mk('span', 'key-grid-lbl'); lbl.textContent = `P${p}`;
     row.appendChild(lbl);
-    for (let i = p * PS; i < Math.min((p+1) * PS, keys.length); i++) {
+    for (let i = p * PS; i < (p+1) * PS; i++) {
+      const isPad = i >= realN;
       const d = digit(keys[i], pass, log2R);
-      const box = mk('div', 'key-box');
+      const box = mk('div', isPad ? 'key-box pad' : 'key-box');
       box.style.cssText = `background:${dBg(d,R)};border-color:${dColor(d,R)}`;
       box.innerHTML = `<span class="kv">${keys[i]}</span>` +
-        (showDigit ? `<span class="kd">d=${d}</span>` : '');
+        (showDigit && !isPad ? `<span class="kd">d=${d}</span>` : '');
       row.appendChild(box);
     }
     grid.appendChild(row);
@@ -267,11 +269,13 @@ function render() {
   const totalBits = log2R;
   const maxKey    = totalBits >= 32 ? 0xFFFFFFFF : (1 << totalBits) - 1;
   const gen       = rng(seed);
-  const keys      = Array.from({length: N}, () => gen() % (maxKey + 1));
-
+  const keys       = Array.from({length: N}, () => gen() % (maxKey + 1));
   const P          = Math.ceil(N / PS);
+  const padVal     = R - 1;
+  const paddedKeys = [...keys, ...Array(P * PS - N).fill(padVal)];
+
   const rowLabels  = Array.from({length: P}, (_, i) => `P${i}`);
-  const {passes, sorted} = sort(keys, log2R, 1, PS);
+  const {passes, sorted} = sort(paddedKeys, log2R, 1, PS);
 
   const app = document.getElementById('app');
   app.innerHTML = '';
@@ -296,7 +300,7 @@ function render() {
   // Input with digits
   const s0 = mk('div');
   ap(s0, mk('h3', null, 'Keys by Partition'));
-  s0.appendChild(keyGrid(input, 0, log2R, R, false, PS));
+  s0.appendChild(keyGrid(input, 0, log2R, R, false, PS, N));
   app.appendChild(s0);
 
   // Upsweep
@@ -322,9 +326,9 @@ function render() {
   ap(s3, mk('h3', null, 'Stage 3 · Downsweep — Scatter'));
   ap(s3, mk('div', 'note', 'dst = globalOffset[d] + partitionOffset[p][d] + localRank'));
   ap(s3, mk('div', 'note', 'Before:'));
-  s3.appendChild(keyGrid(input, 0, log2R, R, false, PS));
+  s3.appendChild(keyGrid(input, 0, log2R, R, false, PS, N));
   ap(s3, mk('div', 'note', 'After:'));
-  s3.appendChild(keyRow(out, 0, log2R, R, false, 0, out.map((_, i) => `dst=${i}`)));
+  s3.appendChild(keyRow(out, 0, log2R, R, false, 0, null, N));
   const det = mk('details');
   ap(det, mk('summary', null, 'Show scatter detail table'));
   det.appendChild(scatterTable(rows, R));
@@ -334,7 +338,7 @@ function render() {
   // Sorted output
   const outSec = mk('div');
   ap(outSec, mk('h3', null, 'Sorted Output'));
-  outSec.appendChild(keyRow(sorted, 0, log2R, R, false));
+  outSec.appendChild(keyRow(sorted.slice(0, N), 0, log2R, R, false));
   app.appendChild(outSec);
 }
 
