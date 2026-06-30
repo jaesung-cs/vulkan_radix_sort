@@ -106,8 +106,8 @@ static uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 static uint32_t Align(uint32_t a, uint32_t b) { return (a + b - 1) / b * b; }
 
 static VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
-  return Align((4 + 4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) * sizeof(uint32_t),
-               align);
+  return Align(
+      (1024 + 4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) * sizeof(uint32_t), align);
 }
 
 static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) {
@@ -279,7 +279,7 @@ void vrdxDestroySorter(VrdxSorter sorter) {
 void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
                                       VrdxSorterStorageRequirements* requirements) {
   auto align = sorter->minStorageBufferOffsetAlignment;
-  VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
+  VkDeviceSize elementCountSize = Align(1024, align);
   VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
   VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
 
@@ -294,7 +294,7 @@ void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCoun
 void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
                                               VrdxSorterStorageRequirements* requirements) {
   auto align = sorter->minStorageBufferOffsetAlignment;
-  VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
+  VkDeviceSize elementCountSize = Align(1024, align);
   VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
   VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
 
@@ -353,7 +353,7 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
   uint32_t partitionCount = RoundUp(elementCount, PARTITION_SIZE);
 
   auto align = sorter->minStorageBufferOffsetAlignment;
-  VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
+  VkDeviceSize elementCountSize = Align(1024, align);
   VkDeviceSize histogramSize = HistogramSize(elementCount, align);
   VkDeviceSize inoutSize = Align(elementCount * sizeof(uint32_t), align);
 

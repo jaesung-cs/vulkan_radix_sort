@@ -90,7 +90,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     // elect a representative per radix, add to histogram
     if (waveOffset == 0) {
       // accumulate to local histogram
-      InterlockedAdd(sh0[HISTOGRAM_STRIDE * radix + waveIndex], radixCount);
+      sh0[HISTOGRAM_STRIDE * radix + waveIndex] += radixCount;
       localHistogram[i] = radixCount;
     } else {
       localHistogram[i] = 0;
@@ -154,13 +154,14 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     localOffsets[i] += sh0[HISTOGRAM_STRIDE * radix + waveIndex];
 
     GroupMemoryBarrierWithGroupSync();
+    // localHistogram[i] > 0 guarantees the unique radix in wave, avoiding simultaneous update
     if (localHistogram[i] > 0) {
-      InterlockedAdd(sh0[HISTOGRAM_STRIDE * radix + waveIndex], localHistogram[i]);
+      sh0[HISTOGRAM_STRIDE * radix + waveIndex] += localHistogram[i];
     }
     GroupMemoryBarrierWithGroupSync();
   }
 
-  // after atomicAdd, sh0 contains inclusive sum
+  // after additions, sh0 contains inclusive sum
   if (index < RADIX) {
     uint v = index == 0 ? 0 : sh0[HISTOGRAM_STRIDE * (index - 1) + waveCount - 1];
     sh1[index] = globalHistogram[RADIX * pass + index] +
