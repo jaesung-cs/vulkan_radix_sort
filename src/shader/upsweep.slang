@@ -31,7 +31,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
     uint keyIndex = partitionStart + WORKGROUP_SIZE * i + index;
     uint key = keyIndex < elementCount ? keys[keyIndex] : 0xffffffff;
     uint radix = bitfieldExtract(key, 8 * pass, 8);
-    __atomic_add(localHistogram[radix], 1, MemoryOrder.Relaxed);
+    InterlockedAdd(localHistogram[radix], 1);
   }
   GroupMemoryBarrierWithGroupSync();
 
@@ -40,6 +40,6 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
     partitionHistogram[RADIX * partitionIndex + index] = localHistogram[index];
 
     // add to global histogram
-    __atomic_add(globalHistogram[RADIX * pass + index], localHistogram[index], MemoryOrder.Relaxed);
+    InterlockedAdd(globalHistogram[RADIX * pass + index], localHistogram[index]);
   }
 }

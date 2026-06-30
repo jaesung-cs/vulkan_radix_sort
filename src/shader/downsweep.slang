@@ -17,25 +17,16 @@ RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 groupshared uint localHistogram[HISTOGRAM_STRIDE * RADIX];  // histogram: 17*256=4352; key scatter alias: PARTITION_SIZE=4096
 groupshared uint localHistogramSum[RADIX];
 
-// returns 0b00000....11111, where msb is laneIndex-1.
-uint4 GetExclusiveWaveMask(uint laneIndex) {
-    uint4 mask = uint4(0, 0, 0, 0);
-    [ForceUnroll]
-    for (int i = 0; i < 4; ++i) {
-        if (laneIndex < 32) {
-            mask[i] = (1u << laneIndex) - 1u;
-            laneIndex = 0;
-        } else {
-            mask[i] = 0xFFFFFFFF;
-            laneIndex -= 32;
-        }
-    }
-    return mask;
-}
-
-uint GetBitCount(uint4 value) {
-  uint4 result = countbits(value);
-  return result[0] + result[1] + result[2] + result[3];
+uint4 WaveMatch8(uint value) {
+  uint4 mask = uint4(0xFFFFFFFF);
+  [ForceUnroll]
+  for (int j = 0; j < 8; ++j) {
+    uint digit = (value >> j) & 1;
+    uint4 ballot = WaveActiveBallot(digit == 1);
+    // digit - 1 is 0 or 0xffffffff. xor to flip.
+    mask &= uint4(digit - 1) ^ ballot;
+  }
+  return mask;
 }
 
 [shader("compute")]
@@ -50,7 +41,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   uint waveCount = WORKGROUP_SIZE / laneCount;  // 32 or 16
   uint index = waveIndex * laneCount + laneIndex;
 
-  uint4 waveMask = GetExclusiveWaveMask(laneIndex);
+  uint4 waveMask = WaveGetLaneLtMask();
 
   uint partitionIndex = groupId.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
@@ -89,23 +80,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     localRadix[i] = radix;
 
     // mask per digit
-    uint4 mask = WaveActiveBallot(true);
-    [ForceUnroll]
-    for (int j = 0; j < 8; ++j) {
-      uint digit = (radix >> j) & 1;
-      uint4 ballot = WaveActiveBallot(digit == 1);
-      // digit - 1 is 0 or 0xffffffff. xor to flip.
-      mask &= uint4(digit - 1) ^ ballot;
-    }
+    uint4 mask = WaveMatch8(radix);
 
     // wave level offset for radix
-    uint waveOffset = GetBitCount(waveMask & mask);
-    uint radixCount = GetBitCount(mask);
+    uint waveOffset = _WaveCountBits(waveMask & mask);
+    uint radixCount = _WaveCountBits(mask);
 
     // elect a representative per radix, add to histogram
     if (waveOffset == 0) {
       // accumulate to local histogram
-      __atomic_add(localHistogram[HISTOGRAM_STRIDE * radix + waveIndex], radixCount, MemoryOrder.Relaxed);
+      InterlockedAdd(localHistogram[HISTOGRAM_STRIDE * radix + waveIndex], radixCount);
       waveHistogram[i] = radixCount;
     } else {
       waveHistogram[i] = 0;
@@ -169,8 +153,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 
     GroupMemoryBarrierWithGroupSync();
     if (waveHistogram[i] > 0) {
-      __atomic_add(localHistogram[HISTOGRAM_STRIDE * radix + waveIndex], waveHistogram[i],
-                   MemoryOrder.Relaxed);
+      InterlockedAdd(localHistogram[HISTOGRAM_STRIDE * radix + waveIndex], waveHistogram[i]);
     }
     GroupMemoryBarrierWithGroupSync();
   }
