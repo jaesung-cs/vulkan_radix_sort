@@ -61,6 +61,32 @@ p  { margin-bottom: .9rem; }
 
 svg text { font-family: "JetBrains Mono", "Fira Code", monospace; }
 
+/* ── Tabs ───────────────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  margin: 1rem 0;
+}
+.tab {
+  padding: 5px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.tab:hover  { background: var(--border); color: var(--text); }
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* ── Controls ───────────────────────────────────────────────────────────────── */
 .controls {
   display: flex;
@@ -154,6 +180,22 @@ svg text { font-family: "JetBrains Mono", "Fira Code", monospace; }
   text-align: right;
 }
 
+
+.desc {
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.65;
+  margin: 0.4rem 0 0.9rem;
+}
+.desc code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.82em;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.05em 0.35em;
+  color: var(--accent2);
+}
 
 .step-head {
   font-size: 0.72rem;

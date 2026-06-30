@@ -41,6 +41,16 @@
     </div>
   </div>
 
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-step="input">Input</button>
+    <button class="tab" data-step="partition">Partition</button>
+    <button class="tab" data-step="upsweep">Upsweep</button>
+    <button class="tab" data-step="spine">Spine</button>
+    <button class="tab" data-step="local-sort">Local Sort</button>
+    <button class="tab" data-step="scatter">Scatter</button>
+    <button class="tab" data-step="output">Output</button>
+  </div>
+
   <div id="app"></div>
 
 </main>
@@ -315,77 +325,108 @@ function render() {
     `RADIX=${R}  log₂(RADIX)=${log2R}  N=${N}  partitions=${P}  partition_size=${PS}  key range [0, ${maxKey}]`;
   app.appendChild(info);
 
-  // Input
-  const inputSec = mk('div');
-  ap(inputSec, mk('h3', null, 'Input Keys'));
-  inputSec.appendChild(keyRow(keys, 0, log2R, R, false));
-  app.appendChild(inputSec);
-
-  // Single pass
   const {input, pH, gH, gPS, pPS, localPrefix, localOffsets, localSortedIdx, localSorted, outIdx, out, rows} = passes[0];
-  const bitLo = 0, bitHi = log2R - 1;
+  const outPart = outIdx.map(id => Math.floor(id / PS));
 
-  // Input with digits
-  const s0 = mk('div');
-  ap(s0, mk('h3', null, 'Keys by Partition'));
-  s0.appendChild(keyGrid(input, 0, log2R, R, false, PS, N));
-  app.appendChild(s0);
+  // ── Input ─────────────────────────────────────────────────────────────────
+  const sInput = mk('div'); sInput.dataset.step = 'input';
+  ap(sInput, mk('h3', null, 'Input Keys'));
+  sInput.appendChild(keyRow(keys, 0, log2R, R, false));
+  app.appendChild(sInput);
 
-  // Upsweep
-  const s1 = mk('div');
-  ap(s1, mk('h3', null, 'Stage 1 · Upsweep'));
-  ap(s1, mk('div', 'note', 'partitionHistogram[P][d] = count of each digit per partition'));
-  s1.appendChild(histTable(pH, R, rowLabels));
-  app.appendChild(s1);
+  // ── Partition ─────────────────────────────────────────────────────────────
+  const sPartition = mk('div'); sPartition.dataset.step = 'partition';
+  ap(sPartition, mk('h3', null, 'Input Keys'));
+  sPartition.appendChild(keyRow(keys, 0, log2R, R, false));
+  ap(sPartition, mk('h3', null, 'Keys by Partition'));
+  ap(sPartition, mk('div', 'note', `N=${N} keys split into ${P} partitions of ${PS}`));
+  sPartition.appendChild(keyGrid(input, 0, log2R, R, true, PS, N));
+  app.appendChild(sPartition);
 
-  // Spine
-  const s2 = mk('div');
-  ap(s2, mk('h3', null, 'Stage 2 · Spine'));
-  ap(s2, mk('div', 'note', 'Total count per digit:'));
-  s2.appendChild(singleRow(gH, R, 'count'));
-  ap(s2, mk('div', 'note', 'Global start offset per digit (exclusive prefix sum of counts):'));
-  s2.appendChild(singleRow(gPS, R, 'offset'));
-  ap(s2, mk('div', 'note', 'Per-partition offset within each digit column (spine result):'));
-  s2.appendChild(histTable(pPS, R, rowLabels));
-  app.appendChild(s2);
+  // ── Upsweep ───────────────────────────────────────────────────────────────
+  const sUp = mk('div'); sUp.dataset.step = 'upsweep';
+  ap(sUp, mk('h3', null, 'Keys by Partition'));
+  sUp.appendChild(keyGrid(input, 0, log2R, R, true, PS, N));
+  ap(sUp, mk('h3', null, 'Stage 1 · Upsweep'));
+  ap(sUp, mk('div', 'note', 'partitionHistogram[P][d] — digit count per partition:'));
+  sUp.appendChild(histTable(pH, R, rowLabels));
+  ap(sUp, mk('div', 'note', 'globalHistogram[d] — total count across all partitions:'));
+  sUp.appendChild(singleRow(gH, R, 'global'));
+  app.appendChild(sUp);
 
-  // Downsweep
-  const s3 = mk('div');
-  ap(s3, mk('h3', null, 'Stage 3 · Downsweep'));
+  // ── Spine ─────────────────────────────────────────────────────────────────
+  const sSpine = mk('div'); sSpine.dataset.step = 'spine';
+  ap(sSpine, mk('h3', null, 'Keys by Partition'));
+  sSpine.appendChild(keyGrid(input, 0, log2R, R, true, PS, N));
+  ap(sSpine, mk('h3', null, 'Upsweep result — partitionHistogram (input)'));
+  ap(sSpine, mk('div', 'note', 'partitionHistogram[P][d] — raw counts:'));
+  sSpine.appendChild(histTable(pH, R, rowLabels));
+  ap(sSpine, mk('h3', null, 'Stage 2 · Spine'));
+  ap(sSpine, mk('div', 'note', 'globalHistogram[d] — total count per digit:'));
+  sSpine.appendChild(singleRow(gH, R, 'count'));
+  ap(sSpine, mk('div', 'note', 'globalOffset[d] — exclusive prefix sum of counts (output start per digit):'));
+  sSpine.appendChild(singleRow(gPS, R, 'offset'));
+  ap(sSpine, mk('div', 'note', 'partitionHistogram[P][d] after spine — exclusive prefix sum per digit column:'));
+  sSpine.appendChild(histTable(pPS, R, rowLabels));
+  app.appendChild(sSpine);
 
-  const step1 = mk('details'); step1.open = true;
-  ap(step1, mk('summary', 'step-head', 'Step 1 · Local sort (shared memory)'));
-  ap(step1, mk('div', 'note', 'Each partition independently sorts its keys by digit into shared memory.'));
-  ap(step1, mk('div', 'note', 'Before (subscript = rank within digit group):'));
-  step1.appendChild(keyGrid(input, 0, log2R, R, false, PS, N, localOffsets, null));
-  ap(step1, mk('div', 'note', 'Local digit start offsets in shared memory (exclusive prefix sum within partition):'));
-  step1.appendChild(histTable(localPrefix, R, rowLabels));
+  // ── Local Sort ────────────────────────────────────────────────────────────
+  const sLocalSort = mk('div'); sLocalSort.dataset.step = 'local-sort';
+  ap(sLocalSort, mk('h3', null, 'Stage 3 · Downsweep — Step 1 · Local Sort'));
+  ap(sLocalSort, mk('p', 'desc',
+    'Each partition independently sorts its keys by digit into shared memory (SMEM). ' +
+    'Threads use wave ballot to assign each key a <code>localRank</code> — its position ' +
+    'among all keys in the same partition with the same digit. ' +
+    'Separately, an exclusive prefix sum over the digit counts gives <code>localPrefix[p][d]</code>: ' +
+    'where digit group <code>d</code> starts inside the locally sorted array. ' +
+    'Each key is written to <code>localPrefix[p][d] + localRank</code> in SMEM.'));
+  ap(sLocalSort, mk('div', 'note', 'Input — keys by partition (subscript = localRank within digit group):'));
+  sLocalSort.appendChild(keyGrid(input, 0, log2R, R, true, PS, N, localOffsets, null));
+  ap(sLocalSort, mk('div', 'note', 'localPrefix[P][d] — digit group start offsets within each partition:'));
+  sLocalSort.appendChild(histTable(localPrefix, R, rowLabels));
   const localSortedRanks = Array.from({length: P * PS}, (_, i) => {
     const p = Math.floor(i / PS), j = i % PS;
     const d = digit(localSorted[i], 0, log2R);
     return j - localPrefix[p][d];
   });
-  ap(step1, mk('div', 'note', 'After local sort (subscript = rank within digit group):'));
-  step1.appendChild(keyGrid(localSorted, 0, log2R, R, false, PS, N, localSortedRanks, localSortedIdx));
-  s3.appendChild(step1);
+  ap(sLocalSort, mk('div', 'note', 'Result — keys sorted by digit within each partition (subscript = localRank):'));
+  sLocalSort.appendChild(keyGrid(localSorted, 0, log2R, R, true, PS, N, localSortedRanks, localSortedIdx));
+  app.appendChild(sLocalSort);
 
-  ap(s3, mk('div', 'step-head', 'Step 2 · Write to global memory'));
-  ap(s3, mk('div', 'note', 'dst = globalOffset[d] + partitionOffset[p][d] + localRank'));
-  ap(s3, mk('div', 'note', 'Read sequentially from each partition\'s sorted shared memory, scatter to global:'));
-  const outPart = outIdx.map(id => Math.floor(id / PS));
-  s3.appendChild(keyRow(out, 0, log2R, R, false, 0, null, N, outIdx, outPart));
-
+  // ── Scatter ───────────────────────────────────────────────────────────────
+  const sScatter = mk('div'); sScatter.dataset.step = 'scatter';
+  ap(sScatter, mk('h3', null, 'Stage 3 · Downsweep — Step 2 · Scatter'));
+  ap(sScatter, mk('p', 'desc',
+    'Each key is written to its final position in the output buffer. ' +
+    'The destination is computed from three addends: ' +
+    '<code>dst = globalOffset[d] + partitionOffset[p][d] + localRank</code>. ' +
+    '<code>globalOffset[d]</code> is where digit <code>d</code> starts in the output (from the global histogram prefix sum). ' +
+    '<code>partitionOffset[p][d]</code> is how many keys with digit <code>d</code> came from partitions before <code>p</code> (spine result). ' +
+    '<code>localRank</code> is the key\'s rank within its digit group inside partition <code>p</code> (local sort result). ' +
+    'Keys are read sequentially from the locally sorted SMEM — coalesced reads — and written to scattered destinations.'));
+  ap(sScatter, mk('div', 'note', 'Input — locally sorted keys (subscript = localRank within digit group):'));
+  sScatter.appendChild(keyGrid(localSorted, 0, log2R, R, true, PS, N, localSortedRanks, localSortedIdx));
+  ap(sScatter, mk('div', 'note', 'globalOffset[d] — output buffer start per digit (from global histogram):'));
+  sScatter.appendChild(singleRow(gPS, R, 'offset'));
+  ap(sScatter, mk('div', 'note', 'partitionOffset[P][d] — per-partition offset per digit (spine result):'));
+  sScatter.appendChild(histTable(pPS, R, rowLabels));
+  ap(sScatter, mk('div', 'note', 'Result — keys scattered to final positions (dst = globalOffset[d] + partitionOffset[p][d] + localRank):'));
+  sScatter.appendChild(keyRow(out, 0, log2R, R, false, 0, null, N, outIdx, outPart));
   const det = mk('details');
   ap(det, mk('summary', null, 'Show scatter detail table'));
   det.appendChild(scatterTable(rows, R));
-  s3.appendChild(det);
-  app.appendChild(s3);
+  sScatter.appendChild(det);
+  app.appendChild(sScatter);
 
-  // Sorted output
-  const outSec = mk('div');
-  ap(outSec, mk('h3', null, 'Sorted Output'));
-  outSec.appendChild(keyRow(sorted.slice(0, N), 0, log2R, R, false, 0, null, N, outIdx.slice(0, N), outPart.slice(0, N)));
-  app.appendChild(outSec);
+  // ── Output ────────────────────────────────────────────────────────────────
+  const sOut = mk('div'); sOut.dataset.step = 'output';
+  ap(sOut, mk('h3', null, 'Input Keys'));
+  sOut.appendChild(keyRow(keys, 0, log2R, R, false));
+  ap(sOut, mk('h3', null, 'Sorted Output'));
+  sOut.appendChild(keyRow(sorted.slice(0, N), 0, log2R, R, false, 0, null, N, outIdx.slice(0, N), outPart.slice(0, N)));
+  app.appendChild(sOut);
+
+  showStep(activeStep);
 }
 
 // ── Hover highlighting ───────────────────────────────────────────────────────
@@ -418,6 +459,18 @@ app.addEventListener('mouseout', e => {
   if (!e.target.closest('.key-box')) return;
   _clearHL = setTimeout(clearHL, 80);
 });
+
+// ── Tab navigation ───────────────────────────────────────────────────────────
+let activeStep = 'input';
+function showStep(step) {
+  activeStep = step;
+  document.querySelectorAll('.tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.step === step));
+  document.querySelectorAll('#app > [data-step]').forEach(el =>
+    el.style.display = el.dataset.step === step ? '' : 'none');
+}
+document.querySelectorAll('.tab').forEach(b =>
+  b.addEventListener('click', () => showStep(b.dataset.step)));
 
 // ── Wire controls ────────────────────────────────────────────────────────────
 ['radix','nkeys','psize','seed'].forEach(id => {
