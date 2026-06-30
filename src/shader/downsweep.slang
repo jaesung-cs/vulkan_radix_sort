@@ -14,7 +14,8 @@ StructuredBuffer<uint> valuesIn : register(t5, space0);
 RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 #endif  // KEY_VALUE
 
-groupshared uint sh0[HISTOGRAM_STRIDE * RADIX];  // histogram: 17*256=4352; key scatter alias: PARTITION_SIZE=4096
+// histogram: 17*256=4352; key scatter alias: PARTITION_SIZE=4096
+groupshared uint sh0[HISTOGRAM_STRIDE * RADIX];
 groupshared uint sh1[RADIX];
 
 uint4 WaveMatch8(uint value) {
@@ -68,7 +69,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     // view (4096) input partition as (:, PARTITION_DIVISION, laneCount)
     // where axis=0 for wave index, axis=1 for partition division, axis=2 for lane index.
-    uint keyIndex = partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
+    uint keyIndex =
+        partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
     uint key = keyIndex < elementCount ? keysIn[keyIndex] : 0xffffffff;
     localKeys[i] = key;
 
@@ -161,7 +163,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   // after atomicAdd, sh0 contains inclusive sum
   if (index < RADIX) {
     uint v = index == 0 ? 0 : sh0[HISTOGRAM_STRIDE * (index - 1) + waveCount - 1];
-    sh1[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - v;
+    sh1[index] = globalHistogram[RADIX * pass + index] +
+                 partitionHistogram[RADIX * partitionIndex + index] - v;
   }
   GroupMemoryBarrierWithGroupSync();
 
