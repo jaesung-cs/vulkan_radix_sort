@@ -65,7 +65,8 @@ struct VrdxSortInfo {
   uint32_t elementCount;
 
   // Count buffer: VK_NULL_HANDLE for direct sort. If set, the element count is read as a
-  // uint32_t from elementCountBuffer at elementCountOffset; elementCount is used only to size storage.
+  // uint32_t from elementCountBuffer at elementCountOffset; elementCount is used only to size
+  // storage.
   VkBuffer elementCountBuffer;
   VkDeviceSize elementCountOffset;
 
@@ -109,13 +110,15 @@ constexpr uint32_t RADIX = 256;
 constexpr int WORKGROUP_SIZE = 512;
 constexpr int PARTITION_DIVISION = 8;
 constexpr int PARTITION_SIZE = PARTITION_DIVISION * WORKGROUP_SIZE;
+constexpr VkDeviceSize GPU_CACHE_LINE_SIZE = 256;
 
 static uint32_t RoundUp(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 static uint32_t Align(uint32_t a, uint32_t b) { return (a + b - 1) / b * b; }
+static VkDeviceSize Max(VkDeviceSize a, VkDeviceSize b) { return a > b ? a : b; }
 
 static VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
-  return Align(
-      (1024 + 4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) * sizeof(uint32_t), align);
+  return Align((4 * RADIX + RoundUp(elementCount, PARTITION_SIZE) * RADIX) * sizeof(uint32_t),
+               align);
 }
 
 static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) {
@@ -278,26 +281,40 @@ void vrdxDestroySorter(VrdxSorter sorter) {
   delete sorter;
 }
 
+struct VrdxSorterStorageLayout {
+  VkDeviceSize size;
+  VkDeviceSize histogramOffset;
+  VkDeviceSize inoutOffset;
+  VkDeviceSize inoutSize;
+};
+
+static void vrdxGetSorterStorageLayout(VrdxSorter sorter, uint32_t maxElementCount,
+                                       VrdxSortMode sortMode, VrdxSorterStorageLayout* layout) {
+  auto align = Max(sorter->minStorageBufferOffsetAlignment, GPU_CACHE_LINE_SIZE);
+  VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
+  VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
+  VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
+  uint32_t inoutSlots = sortMode == VRDX_SORT_MODE_KEY_VALUE ? 2 : 1;
+
+  layout->histogramOffset = elementCountSize;
+  layout->inoutOffset = elementCountSize + histogramSize;
+  layout->inoutSize = inoutSize;
+  layout->size = layout->inoutOffset + inoutSlots * inoutSize;
+}
+
 void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
                                       VrdxSortMode sortMode,
                                       VrdxSorterStorageRequirements* requirements) {
-  auto align = sorter->minStorageBufferOffsetAlignment;
-  VkDeviceSize elementCountSize = Align(1024, align);
-  VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
-  VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
-
-  VkDeviceSize inoutOffset = elementCountSize + histogramSize;
-  uint32_t inoutSlots = sortMode == VRDX_SORT_MODE_KEY_VALUE ? 2 : 1;
-  VkDeviceSize storageSize = inoutOffset + inoutSlots * inoutSize;
-
-  requirements->size = storageSize;
+  VrdxSorterStorageLayout layout;
+  vrdxGetSorterStorageLayout(sorter, maxElementCount, sortMode, &layout);
+  requirements->size = layout.size;
   requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 }
 
 void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSortInfo* pSortInfo) {
   uint32_t elementCount = pSortInfo->elementCount;
-  VkBuffer elementCountBuffer        = pSortInfo->elementCountBuffer;
-  VkDeviceSize elementCountOffset    = pSortInfo->elementCountOffset;
+  VkBuffer elementCountBuffer = pSortInfo->elementCountBuffer;
+  VkDeviceSize elementCountOffset = pSortInfo->elementCountOffset;
   VkBuffer keysBuffer = pSortInfo->keysBuffer;
   VkDeviceSize keysOffset = pSortInfo->keysOffset;
   VkBuffer valuesBuffer = pSortInfo->valuesBuffer;
@@ -313,13 +330,13 @@ void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSor
 
   uint32_t partitionCount = RoundUp(elementCount, PARTITION_SIZE);
 
-  auto align = sorter->minStorageBufferOffsetAlignment;
-  VkDeviceSize elementCountSize = Align(1024, align);
-  VkDeviceSize histogramSize = HistogramSize(elementCount, align);
-  VkDeviceSize inoutSize = Align(elementCount * sizeof(uint32_t), align);
+  VrdxSorterStorageLayout layout;
+  VrdxSortMode sortMode = valuesBuffer ? VRDX_SORT_MODE_KEY_VALUE : VRDX_SORT_MODE_KEYS_ONLY;
+  vrdxGetSorterStorageLayout(sorter, elementCount, sortMode, &layout);
 
-  VkDeviceSize histogramOffset = storageOffset + elementCountSize;
-  VkDeviceSize inoutOffset = histogramOffset + histogramSize;
+  VkDeviceSize histogramOffset = storageOffset + layout.histogramOffset;
+  VkDeviceSize inoutOffset = storageOffset + layout.inoutOffset;
+  VkDeviceSize inoutSize = layout.inoutSize;
 
   if (queryPool) {
     vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPool, query + 0);
@@ -371,7 +388,7 @@ void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSor
     if (valuesBuffer) {
       writeCount = 7;
       buffers[5] = {valuesBuffer, valuesOffset, inoutSize};
-      buffers[6] = {storageBuffer, inoutOffset + Align(inoutSize, align), inoutSize};
+      buffers[6] = {storageBuffer, inoutOffset + inoutSize, inoutSize};
     }
 
     // switch in->out to out->in for pass 1, pass 3
