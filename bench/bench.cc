@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -13,11 +14,12 @@
 namespace {
 
 constexpr int kWarmupRuns = 1;
-constexpr int kTimedRuns = 10;
+constexpr int kTimedRuns = 11;
 constexpr uint32_t kNMin = 1u << 18;
 constexpr uint32_t kNMax = 1u << 25;
 constexpr int kNCount = 128;
 constexpr uint32_t kNStep = (kNMax - kNMin) / (kNCount - 1);
+constexpr uint32_t kNDisturbance = 4096;
 
 double toMs(uint64_t ns) { return static_cast<double>(ns) / 1e6; }
 double toGItemsS(uint32_t n, uint64_t ns) {
@@ -158,10 +160,13 @@ int main(int argc, char** argv) {
   DataGenerator gen;
   std::vector<Row> rows;
 
-  for (int i = 0; i < kNCount; ++i) {
-    uint32_t n = kNMin + static_cast<uint32_t>(i) * kNStep;
+  std::mt19937 rng(42);
+  std::uniform_int_distribution<uint32_t> disturb(0, kNDisturbance - 1);
 
-    if (i == 0 && !no_verify) {
+  for (int i = 0; i < kNCount; ++i) {
+    uint32_t n = kNMin + static_cast<uint32_t>(i) * kNStep + disturb(rng);
+
+    if (!no_verify) {
       if (!checkCorrectness(bench.get(), cpu.get(), n, gen)) return 1;
     }
 
