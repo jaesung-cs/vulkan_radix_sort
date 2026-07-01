@@ -136,8 +136,8 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
 
     ```c++
     VrdxSorterStorageRequirements requirements;
-    vrdxGetSorterStorageRequirements(sorter, elementCount, &requirements);         // keys only
-    vrdxGetSorterKeyValueStorageRequirements(sorter, elementCount, &requirements); // key-value
+    vrdxGetSorterStorageRequirements(sorter, elementCount, VRDX_SORT_MODE_KEYS_ONLY, &requirements);  // keys only
+    vrdxGetSorterStorageRequirements(sorter, elementCount, VRDX_SORT_MODE_KEY_VALUE, &requirements);  // key-value
 
     VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = requirements.size;
@@ -160,26 +160,32 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
     VkQueryPool queryPool;  // VK_NULL_HANDLE, or a timestamp query pool with at least 15 entries.
 
     // Sort keys only
-    vrdxCmdSort(commandBuffer, sorter, elementCount,
-                keysBuffer, 0,
-                storageBuffer, 0,
-                queryPool, 0);
+    VrdxSortInfo info = {};
+    info.elementCount = elementCount;
+    info.keysBuffer      = keysBuffer;
+    info.storageBuffer   = storageBuffer;
+    info.queryPool       = queryPool;
+    vrdxCmdSort(commandBuffer, sorter, &info);
 
-    // Sort keys with values
-    vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount,
-                        keysBuffer, 0,
-                        valuesBuffer, 0,
-                        storageBuffer, 0,
-                        queryPool, 0);
+    // Sort keys with values (set valuesBuffer)
+    VrdxSortInfo info = {};
+    info.elementCount = elementCount;
+    info.keysBuffer      = keysBuffer;
+    info.valuesBuffer    = valuesBuffer;
+    info.storageBuffer   = storageBuffer;
+    info.queryPool       = queryPool;
+    vrdxCmdSort(commandBuffer, sorter, &info);
 
     // Sort with indirect element count (read from GPU buffer)
-    // Actual count in indirectBuffer must not exceed maxElementCount.
-    vrdxCmdSortKeyValueIndirect(commandBuffer, sorter, maxElementCount,
-                                indirectBuffer, 0,
-                                keysBuffer, 0,
-                                valuesBuffer, 0,
-                                storageBuffer, 0,
-                                queryPool, 0);
+    // Actual count in elementCountBuffer must not exceed elementCount.
+    VrdxSortInfo info = {};
+    info.elementCount       = maxElementCount;
+    info.elementCountBuffer = elementCountBuffer;
+    info.keysBuffer         = keysBuffer;
+    info.valuesBuffer       = valuesBuffer;
+    info.storageBuffer      = storageBuffer;
+    info.queryPool          = queryPool;
+    vrdxCmdSort(commandBuffer, sorter, &info);
     ```
 
 

@@ -261,7 +261,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VrdxSorterStorageRequirements requirements;
-  vrdxGetSorterStorageRequirements(sorter_, element_count, &requirements);
+  vrdxGetSorterStorageRequirements(sorter_, element_count, VRDX_SORT_MODE_KEYS_ONLY, &requirements);
   Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -292,8 +292,12 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0, storage_.buffer, 0,
-              query_pool_, 0);
+  VrdxSortInfo sort_info = {};
+  sort_info.elementCount = element_count;
+  sort_info.keysBuffer = keys_.buffer;
+  sort_info.storageBuffer = storage_.buffer;
+  sort_info.queryPool = query_pool_;
+  vrdxCmdSort(command_buffer_, sorter_, &sort_info);
 
   vkEndCommandBuffer(command_buffer_);
   auto cpu_start = std::chrono::steady_clock::now();
@@ -350,7 +354,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VrdxSorterStorageRequirements requirements;
-  vrdxGetSorterKeyValueStorageRequirements(sorter_, element_count, &requirements);
+  vrdxGetSorterStorageRequirements(sorter_, element_count, VRDX_SORT_MODE_KEY_VALUE, &requirements);
   Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -383,9 +387,16 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, element_count, keys_.buffer, 2 * inout_size,
-                              keys_.buffer, 0, keys_.buffer, inout_size, storage_.buffer, 0,
-                              query_pool_, 0);
+  VrdxSortInfo sort_info = {};
+  sort_info.elementCount = element_count;
+  sort_info.elementCountBuffer = keys_.buffer;
+  sort_info.elementCountOffset = 2 * inout_size;
+  sort_info.keysBuffer = keys_.buffer;
+  sort_info.valuesBuffer = keys_.buffer;
+  sort_info.valuesOffset = inout_size;
+  sort_info.storageBuffer = storage_.buffer;
+  sort_info.queryPool = query_pool_;
+  vrdxCmdSort(command_buffer_, sorter_, &sort_info);
 
   vkEndCommandBuffer(command_buffer_);
   auto cpu_start = std::chrono::steady_clock::now();
