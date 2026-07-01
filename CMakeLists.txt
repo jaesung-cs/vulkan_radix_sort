@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(vk_radix_sort VERSION 0.4.1 LANGUAGES CXX)
+project(vk_radix_sort VERSION 0.5.0 LANGUAGES CXX)
 
 find_package(Vulkan REQUIRED)
 message(STATUS "Vulkan version: ${Vulkan_VERSION}")

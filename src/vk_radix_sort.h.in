@@ -25,60 +25,68 @@ VkResult vrdxCreateSorter(const VrdxSorterCreateInfo* pCreateInfo, VrdxSorter* p
 
 void vrdxDestroySorter(VrdxSorter sorter);
 
+typedef enum VrdxSortMode {
+  VRDX_SORT_MODE_KEYS_ONLY = 0,
+  VRDX_SORT_MODE_KEY_VALUE = 1,
+} VrdxSortMode;
+
 struct VrdxSorterStorageRequirements {
   VkDeviceSize size;
   VkBufferUsageFlags usage;
 };
 
 void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
+                                      VrdxSortMode sortMode,
                                       VrdxSorterStorageRequirements* requirements);
 
-void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
-                                              VrdxSorterStorageRequirements* requirements);
-
 /**
- * if queryPool is not VK_NULL_HANDLE, it writes timestamps to N entries
- * [query..query+N-1].
+ * Parameters for vrdxCmdSort.
  *
- * N=15
- * query + 0: start timestamp (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
- * query + 1: transfer timestamp (VK_PIPELINE_STAGE_TRANSFER_BIT)
- * query + 2 + (3 * i) + 0: upsweep (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
- * query + 2 + (3 * i) + 1: spine (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
- * query + 2 + (3 * i) + 2: downsweep (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
- * query + 14: sort end timestamp (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+ * elementCountBuffer: if not VK_NULL_HANDLE, the element count is read as a uint32_t from
+ *   elementCountBuffer at elementCountOffset. elementCount is then an upper bound used to size
+ *   internal storage. The caller must insert a barrier with COMPUTE_SHADER stage and
+ *   SHADER_READ access before recording the sort, and elementCountBuffer requires
+ *   TRANSFER_SRC usage. Set to VK_NULL_HANDLE for a direct sort, in which case
+ *   elementCount is the exact element count.
+ *
+ * valuesBuffer: if not VK_NULL_HANDLE, key-value pairs are sorted, with values read from
+ *   valuesBuffer at valuesOffset. Set to VK_NULL_HANDLE for a keys-only sort.
+ *
+ * queryPool: if not VK_NULL_HANDLE, timestamps are written to 15 entries [query..query+14]:
+ *   query + 0:            sort start   (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+ *   query + 1:            transfer     (VK_PIPELINE_STAGE_TRANSFER_BIT)
+ *   query + 2 + 3*i + 0:  upsweep i    (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ *   query + 2 + 3*i + 1:  spine i      (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ *   query + 2 + 3*i + 2:  downsweep i  (VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT)
+ *   query + 14:           sort end     (VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
  */
-void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-                 VkBuffer keysBuffer, VkDeviceSize keysOffset, VkBuffer storageBuffer,
-                 VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query);
+struct VrdxSortInfo {
+  // Element count: exact for direct sort; upper bound for indirect sort.
+  uint32_t elementCount;
 
-void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t maxElementCount,
-                         VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer keysBuffer,
-                         VkDeviceSize keysOffset, VkBuffer storageBuffer,
-                         VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query);
+  // Count buffer: VK_NULL_HANDLE for direct sort. If set, the element count is read as a
+  // uint32_t from elementCountBuffer at elementCountOffset; elementCount is used only to size storage.
+  VkBuffer elementCountBuffer;
+  VkDeviceSize elementCountOffset;
 
-void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-                         VkBuffer keysBuffer, VkDeviceSize keysOffset, VkBuffer valuesBuffer,
-                         VkDeviceSize valuesOffset, VkBuffer storageBuffer,
-                         VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query);
+  // Keys buffer.
+  VkBuffer keysBuffer;
+  VkDeviceSize keysOffset;
 
-/**
- * indirectBuffer contains elementCount.
- *
- * The sort command reads a uint32_t value from indirectBuffer at
- * indirectOffset.
- *
- * User must add barrier with second synchronization scope
- * COMPUTE_SHADER stage and SHADER_READ access.
- *
- * indirectBuffer requires TRANSFER_SRC buffer usage flag.
- */
-void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                                 uint32_t maxElementCount, VkBuffer indirectBuffer,
-                                 VkDeviceSize indirectOffset, VkBuffer keysBuffer,
-                                 VkDeviceSize keysOffset, VkBuffer valuesBuffer,
-                                 VkDeviceSize valuesOffset, VkBuffer storageBuffer,
-                                 VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query);
+  // Values buffer: VK_NULL_HANDLE for keys-only sort.
+  VkBuffer valuesBuffer;
+  VkDeviceSize valuesOffset;
+
+  // Storage buffer.
+  VkBuffer storageBuffer;
+  VkDeviceSize storageOffset;
+
+  // Timestamp query pool: VK_NULL_HANDLE to skip. See comment above for slot layout.
+  VkQueryPool queryPool;
+  uint32_t query;
+};
+
+void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSortInfo* pSortInfo);
 
 #endif  // VK_RADIX_SORT_H
 
@@ -113,12 +121,6 @@ static VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
 static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) {
   return Align(elementCount * sizeof(uint32_t), align);
 }
-
-static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-                    VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer buffer,
-                    VkDeviceSize offset, VkBuffer valueBuffer, VkDeviceSize valueOffset,
-                    VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
-                    uint32_t query);
 
 struct VrdxSorter_T {
   VkDevice device = VK_NULL_HANDLE;
@@ -277,75 +279,34 @@ void vrdxDestroySorter(VrdxSorter sorter) {
 }
 
 void vrdxGetSorterStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
+                                      VrdxSortMode sortMode,
                                       VrdxSorterStorageRequirements* requirements) {
   auto align = sorter->minStorageBufferOffsetAlignment;
   VkDeviceSize elementCountSize = Align(1024, align);
   VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
   VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
 
-  VkDeviceSize histogramOffset = elementCountSize;
-  VkDeviceSize inoutOffset = histogramOffset + histogramSize;
-  VkDeviceSize storageSize = inoutOffset + inoutSize;
+  VkDeviceSize inoutOffset = elementCountSize + histogramSize;
+  uint32_t inoutSlots = sortMode == VRDX_SORT_MODE_KEY_VALUE ? 2 : 1;
+  VkDeviceSize storageSize = inoutOffset + inoutSlots * inoutSize;
 
   requirements->size = storageSize;
   requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 }
 
-void vrdxGetSorterKeyValueStorageRequirements(VrdxSorter sorter, uint32_t maxElementCount,
-                                              VrdxSorterStorageRequirements* requirements) {
-  auto align = sorter->minStorageBufferOffsetAlignment;
-  VkDeviceSize elementCountSize = Align(1024, align);
-  VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
-  VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
+void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSortInfo* pSortInfo) {
+  uint32_t elementCount = pSortInfo->elementCount;
+  VkBuffer elementCountBuffer        = pSortInfo->elementCountBuffer;
+  VkDeviceSize elementCountOffset    = pSortInfo->elementCountOffset;
+  VkBuffer keysBuffer = pSortInfo->keysBuffer;
+  VkDeviceSize keysOffset = pSortInfo->keysOffset;
+  VkBuffer valuesBuffer = pSortInfo->valuesBuffer;
+  VkDeviceSize valuesOffset = pSortInfo->valuesOffset;
+  VkBuffer storageBuffer = pSortInfo->storageBuffer;
+  VkDeviceSize storageOffset = pSortInfo->storageOffset;
+  VkQueryPool queryPool = pSortInfo->queryPool;
+  uint32_t query = pSortInfo->query;
 
-  VkDeviceSize histogramOffset = elementCountSize;
-  VkDeviceSize inoutOffset = histogramOffset + histogramSize;
-  // 2x for key value
-  VkDeviceSize storageSize = inoutOffset + Align(inoutSize, align) + inoutSize;
-
-  requirements->size = storageSize;
-  requirements->usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-}
-
-void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-                 VkBuffer keysBuffer, VkDeviceSize keysOffset, VkBuffer storageBuffer,
-                 VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query) {
-  gpuSort(commandBuffer, sorter, elementCount, NULL, 0, keysBuffer, keysOffset, NULL, 0,
-          storageBuffer, storageOffset, queryPool, query);
-}
-
-void vrdxCmdSortIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t maxElementCount,
-                         VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer keysBuffer,
-                         VkDeviceSize keysOffset, VkBuffer storageBuffer,
-                         VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query) {
-  gpuSort(commandBuffer, sorter, maxElementCount, indirectBuffer, indirectOffset, keysBuffer,
-          keysOffset, NULL, 0, storageBuffer, storageOffset, queryPool, query);
-}
-
-void vrdxCmdSortKeyValue(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-                         VkBuffer keysBuffer, VkDeviceSize keysOffset, VkBuffer valuesBuffer,
-                         VkDeviceSize valuesOffset, VkBuffer storageBuffer,
-                         VkDeviceSize storageOffset, VkQueryPool queryPool, uint32_t query) {
-  gpuSort(commandBuffer, sorter, elementCount, NULL, 0, keysBuffer, keysOffset, valuesBuffer,
-          valuesOffset, storageBuffer, storageOffset, queryPool, query);
-}
-
-void vrdxCmdSortKeyValueIndirect(VkCommandBuffer commandBuffer, VrdxSorter sorter,
-                                 uint32_t maxElementCount, VkBuffer indirectBuffer,
-                                 VkDeviceSize indirectOffset, VkBuffer keysBuffer,
-                                 VkDeviceSize keysOffset, VkBuffer valuesBuffer,
-                                 VkDeviceSize valuesOffset, VkBuffer storageBuffer,
-                                 VkDeviceSize storageOffset, VkQueryPool queryPool,
-                                 uint32_t query) {
-  gpuSort(commandBuffer, sorter, maxElementCount, indirectBuffer, indirectOffset, keysBuffer,
-          keysOffset, valuesBuffer, valuesOffset, storageBuffer, storageOffset, queryPool, query);
-}
-
-static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t elementCount,
-                    VkBuffer indirectBuffer, VkDeviceSize indirectOffset, VkBuffer keysBuffer,
-                    VkDeviceSize keysOffset, VkBuffer valuesBuffer, VkDeviceSize valuesOffset,
-                    VkBuffer storageBuffer, VkDeviceSize storageOffset, VkQueryPool queryPool,
-                    uint32_t query) {
   VkDevice device = sorter->device;
   VkPipelineLayout pipelineLayout = sorter->pipelineLayout;
   PFN_vkCmdPushDescriptorSet cmdPushDescriptorSet = sorter->cmdPushDescriptorSet;
@@ -357,24 +318,23 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
   VkDeviceSize histogramSize = HistogramSize(elementCount, align);
   VkDeviceSize inoutSize = Align(elementCount * sizeof(uint32_t), align);
 
-  VkDeviceSize elementCountOffset = storageOffset;
-  VkDeviceSize histogramOffset = elementCountOffset + elementCountSize;
+  VkDeviceSize histogramOffset = storageOffset + elementCountSize;
   VkDeviceSize inoutOffset = histogramOffset + histogramSize;
 
   if (queryPool) {
     vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPool, query + 0);
   }
 
-  if (indirectBuffer) {
+  if (elementCountBuffer) {
     // copy elementCount
     VkBufferCopy region;
-    region.srcOffset = indirectOffset;
-    region.dstOffset = elementCountOffset;
+    region.srcOffset = elementCountOffset;
+    region.dstOffset = storageOffset;
     region.size = sizeof(uint32_t);
-    vkCmdCopyBuffer(commandBuffer, indirectBuffer, storageBuffer, 1, &region);
+    vkCmdCopyBuffer(commandBuffer, elementCountBuffer, storageBuffer, 1, &region);
   } else {
     // set element count
-    vkCmdUpdateBuffer(commandBuffer, storageBuffer, elementCountOffset, sizeof(elementCount),
+    vkCmdUpdateBuffer(commandBuffer, storageBuffer, storageOffset, sizeof(elementCount),
                       &elementCount);
   }
 
@@ -402,7 +362,7 @@ static void gpuSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, uint32_t e
 
     int writeCount = 5;
     VkDescriptorBufferInfo buffers[7];
-    buffers[0] = {storageBuffer, elementCountOffset, sizeof(elementCount)};
+    buffers[0] = {storageBuffer, storageOffset, sizeof(elementCount)};
     buffers[1] = {storageBuffer, histogramOffset, sizeof(uint32_t) * 4 * RADIX};
     buffers[2] = {storageBuffer, histogramOffset + sizeof(uint32_t) * 4 * RADIX,
                   sizeof(uint32_t) * partitionCount * RADIX};
