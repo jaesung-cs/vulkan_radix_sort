@@ -18,7 +18,7 @@ groupshared uint sh0[HISTOGRAM_STRIDE * RADIX];
 groupshared uint sh1[RADIX * 2];
 
 uint4 WaveMatch8(uint value) {
-  uint4 mask = uint4(0xFFFFFFFF);
+  uint4 mask = uint4(0xffffffff);
   [ForceUnroll]
   for (int j = 0; j < 8; ++j) {
     uint digit = (value >> j) & 1;
@@ -41,29 +41,22 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   uint waveCount = WORKGROUP_SIZE / laneCount;  // 16 or 8
   uint index = waveIndex * laneCount + laneIndex;
 
-  uint4 waveMask = WaveGetLaneLtMask();
-
   uint partitionIndex = groupId.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
-
-  if (partitionStart >= elementCount)
-    return;
 
   for (int i = index; i < HISTOGRAM_STRIDE * RADIX; i += WORKGROUP_SIZE) {
     sh0[i] = 0;
   }
   GroupMemoryBarrierWithGroupSync();
 
-  // load from global memory, local histogram and offset
   uint localKeys[PARTITION_DIVISION];
   uint localRadices[PARTITION_DIVISION];
   uint localOffsets[PARTITION_DIVISION];
-  uint localCounts[PARTITION_DIVISION];
 #ifdef KEY_VALUE
   uint localValues[PARTITION_DIVISION];
 #endif  // KEY_VALUE
 
-  // load keys
+  // load keys from global memory
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     // view (4096) input partition as (:, PARTITION_DIVISION, laneCount)
@@ -72,16 +65,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
         partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
     uint key = keyIndex < elementCount ? keysIn[keyIndex] : 0xffffffff;
     localKeys[i] = key;
+    localRadices[i] = bitfieldExtract(key, pass * 8, 8);
 
 #ifdef KEY_VALUE
     localValues[i] = keyIndex < elementCount ? valuesIn[keyIndex] : 0;
 #endif  // KEY_VALUE
-
-    uint radix = bitfieldExtract(key, pass * 8, 8);
-    localRadices[i] = radix;
   }
 
   // calculate wave radix counts, offsets
+  uint4 waveMask = WaveGetLaneLtMask();
+
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint radix = localRadices[i];
@@ -93,31 +86,29 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint waveOffset = _WaveCountBits(waveMask & mask);
     uint radixCount = _WaveCountBits(mask);
 
+    localOffsets[i] = sh0[HISTOGRAM_STRIDE * radix + waveIndex] + waveOffset;
+    GroupMemoryBarrierWithGroupSync();
+
     // elect a representative per radix, add to histogram
     if (waveOffset == 0) {
       // accumulate to local histogram
       sh0[HISTOGRAM_STRIDE * radix + waveIndex] += radixCount;
-      localCounts[i] = radixCount;
-    } else {
-      localCounts[i] = 0;
     }
-
-    localOffsets[i] = waveOffset;
+    GroupMemoryBarrierWithGroupSync();
   }
-  GroupMemoryBarrierWithGroupSync();
 
   // cumsum (256, 17), axis=1
   for (uint i = index; i < RADIX * waveCount; i += WORKGROUP_SIZE) {
     uint x = i / waveCount;
-    uint y = i % waveCount;
+    uint y = i & (waveCount - 1);
     uint id = x * HISTOGRAM_STRIDE + y;
 
     uint v = sh0[id];
     uint excl = WavePrefixSum(v);
-    uint prev = WaveReadLaneAt(excl, laneIndex / waveCount * waveCount);
+    uint prev = WaveReadLaneAt(excl, laneIndex & ~(waveCount - 1));
     sh0[id] = excl - prev;
-    if ((i + 1) % waveCount == 0) {
-      sh1[i / waveCount] = excl + v - prev;
+    if (y == waveCount - 1) {
+      sh1[x] = excl + v - prev;
     }
   }
   GroupMemoryBarrierWithGroupSync();
@@ -150,18 +141,12 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint radix = localRadices[i];
     localOffsets[i] += sh0[HISTOGRAM_STRIDE * radix + waveIndex] + sh1[radix];
-
-    GroupMemoryBarrierWithGroupSync();
-    if (localCounts[i] > 0) {
-      sh0[HISTOGRAM_STRIDE * radix + waveIndex] += localCounts[i];
-    }
-    GroupMemoryBarrierWithGroupSync();
   }
+  GroupMemoryBarrierWithGroupSync();
 
   if (index < RADIX) {
     sh1[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - sh1[index];
   }
-  GroupMemoryBarrierWithGroupSync();
 
   // rearrange keys. grouping keys together makes dstOffset to be almost sequential, grants huge
   // speed boost. now sh0 is unused, so alias memory.
@@ -183,7 +168,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     }
 
 #ifdef KEY_VALUE
-    localKeys[id / WORKGROUP_SIZE] = dstOffset;
+    localKeys[i] = dstOffset;
 #endif  // KEY_VALUE
   }
 
@@ -196,11 +181,11 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
-  [[ForceUnroll]]
+  [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint id = i * WORKGROUP_SIZE + index;
     uint value = sh0[id];
-    uint dstOffset = localKeys[id / WORKGROUP_SIZE];
+    uint dstOffset = localKeys[i];
     if (dstOffset < elementCount) {
       valuesOut[dstOffset] = value;
     }
