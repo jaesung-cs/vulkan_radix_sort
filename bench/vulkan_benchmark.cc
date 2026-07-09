@@ -208,6 +208,9 @@ VulkanBenchmark::~VulkanBenchmark() {
   vkDeviceWaitIdle(device_);
 
   if (keys_.buffer) vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
+  if (values_.buffer) vmaDestroyBuffer(allocator_, values_.buffer, values_.allocation);
+  if (element_count_.buffer)
+    vmaDestroyBuffer(allocator_, element_count_.buffer, element_count_.allocation);
   if (storage_.buffer) vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
   if (staging_.buffer) vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
@@ -347,9 +350,15 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   uint32_t element_count = keys.size();
   uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
-  Reallocate(&staging_, 2 * inout_size + min_buffer_alignment_,
+  Reallocate(&staging_, 2 * inout_size + sizeof(uint32_t),
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-  Reallocate(&keys_, 2 * inout_size + min_buffer_alignment_,
+  Reallocate(&keys_, inout_size,
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  Reallocate(&values_, inout_size,
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  Reallocate(&element_count_, sizeof(uint32_t),
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
@@ -368,12 +377,25 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
 
   vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
-  // copy to keys buffer
-  VkBufferCopy region = {};
-  region.srcOffset = 0;
-  region.dstOffset = 0;
-  region.size = 2 * inout_size + sizeof(uint32_t);
-  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
+  // copy to keys/values/element count buffers
+  VkBufferCopy keys_region = {};
+  keys_region.srcOffset = 0;
+  keys_region.dstOffset = 0;
+  keys_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &keys_region);
+
+  VkBufferCopy values_region = {};
+  values_region.srcOffset = inout_size;
+  values_region.dstOffset = 0;
+  values_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, values_.buffer, 1, &values_region);
+
+  VkBufferCopy element_count_region = {};
+  element_count_region.srcOffset = 2 * inout_size;
+  element_count_region.dstOffset = 0;
+  element_count_region.size = sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, element_count_.buffer, 1,
+                  &element_count_region);
 
   vkEndCommandBuffer(command_buffer_);
 
@@ -389,11 +411,9 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
 
   VrdxSortInfo sort_info = {};
   sort_info.elementCount = element_count;
-  sort_info.elementCountBuffer = keys_.buffer;
-  sort_info.elementCountOffset = 2 * inout_size;
+  sort_info.elementCountBuffer = element_count_.buffer;
   sort_info.keysBuffer = keys_.buffer;
-  sort_info.valuesBuffer = keys_.buffer;
-  sort_info.valuesOffset = inout_size;
+  sort_info.valuesBuffer = values_.buffer;
   sort_info.storageBuffer = storage_.buffer;
   sort_info.queryPool = query_pool_;
   vrdxCmdSort(command_buffer_, sorter_, &sort_info);
@@ -408,10 +428,17 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // copy back
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  region.srcOffset = 0;
-  region.dstOffset = 0;
-  region.size = 2 * inout_size;
-  vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &region);
+  VkBufferCopy keys_back_region = {};
+  keys_back_region.srcOffset = 0;
+  keys_back_region.dstOffset = 0;
+  keys_back_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &keys_back_region);
+
+  VkBufferCopy values_back_region = {};
+  values_back_region.srcOffset = 0;
+  values_back_region.dstOffset = inout_size;
+  values_back_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, values_.buffer, staging_.buffer, 1, &values_back_region);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
