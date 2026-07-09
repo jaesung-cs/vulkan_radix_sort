@@ -16,6 +16,7 @@ RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 
 groupshared uint sh0[HISTOGRAM_STRIDE * RADIX];
 groupshared uint sh1[RADIX * 2];
+groupshared uint sh2[RADIX];
 
 uint4 WaveMatch8(uint value) {
   uint4 mask = uint4(0xffffffff);
@@ -47,11 +48,15 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   for (int i = index; i < HISTOGRAM_STRIDE * RADIX; i += WORKGROUP_SIZE) {
     sh0[i] = 0;
   }
-  GroupMemoryBarrierWithGroupSync();
+  if (index < RADIX) {
+    sh2[index] =
+        globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index];
+  }
 
   uint localKeys[PARTITION_DIVISION];
   uint localRadices[PARTITION_DIVISION];
   uint localOffsets[PARTITION_DIVISION];
+  uint localCounts[PARTITION_DIVISION];
 #ifdef KEY_VALUE
   uint localValues[PARTITION_DIVISION];
 #endif  // KEY_VALUE
@@ -86,7 +91,18 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint waveOffset = _WaveCountBits(waveMask & mask);
     uint radixCount = _WaveCountBits(mask);
 
-    localOffsets[i] = sh0[HISTOGRAM_STRIDE * radix + waveIndex] + waveOffset;
+    localOffsets[i] = waveOffset;
+    localCounts[i] = radixCount;
+  }
+
+  GroupMemoryBarrierWithGroupSync();
+  [ForceUnroll]
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
+    uint radix = localRadices[i];
+    uint waveOffset = localOffsets[i];
+    uint radixCount = localCounts[i];
+
+    localOffsets[i] += sh0[HISTOGRAM_STRIDE * radix + waveIndex];
     GroupMemoryBarrierWithGroupSync();
 
     // elect a representative per radix, add to histogram
@@ -125,14 +141,14 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   GroupMemoryBarrierWithGroupSync();
 
   if (index < RADIX / laneCount) {
-    uint v = sh1[RADIX + index];
-    uint excl = WavePrefixSum(v);
+    uint excl = WavePrefixSum(sh1[RADIX + index]);
     sh1[RADIX + index] = excl;
   }
   GroupMemoryBarrierWithGroupSync();
 
   if (index < RADIX) {
     sh1[index] += sh1[RADIX + index / laneCount];
+    sh2[index] -= sh1[index];
   }
   GroupMemoryBarrierWithGroupSync();
 
@@ -143,10 +159,6 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     localOffsets[i] += sh0[HISTOGRAM_STRIDE * radix + waveIndex] + sh1[radix];
   }
   GroupMemoryBarrierWithGroupSync();
-
-  if (index < RADIX) {
-    sh1[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index] - sh1[index];
-  }
 
   // rearrange keys. grouping keys together makes dstOffset to be almost sequential, grants huge
   // speed boost. now sh0 is unused, so alias memory.
@@ -162,7 +174,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint id = i * WORKGROUP_SIZE + index;
     uint key = sh0[id];
     uint radix = bitfieldExtract(key, pass * 8, 8);
-    uint dstOffset = sh1[radix] + id;
+    uint dstOffset = sh2[radix] + id;
     if (dstOffset < elementCount) {
       keysOut[dstOffset] = key;
     }

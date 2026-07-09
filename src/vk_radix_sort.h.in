@@ -121,6 +121,10 @@ static VkDeviceSize HistogramSize(uint32_t elementCount, uint32_t align) {
                align);
 }
 
+static VkDeviceSize TightInoutSize(uint32_t elementCount) {
+  return elementCount * sizeof(uint32_t);
+}
+
 static VkDeviceSize InoutSize(uint32_t elementCount, uint32_t align) {
   return Align(elementCount * sizeof(uint32_t), align);
 }
@@ -285,6 +289,7 @@ struct VrdxSorterStorageLayout {
   VkDeviceSize size;
   VkDeviceSize histogramOffset;
   VkDeviceSize inoutOffset;
+  VkDeviceSize tightInoutSize;
   VkDeviceSize inoutSize;
 };
 
@@ -293,11 +298,13 @@ static void vrdxGetSorterStorageLayout(VrdxSorter sorter, uint32_t maxElementCou
   auto align = Max(sorter->minStorageBufferOffsetAlignment, GPU_CACHE_LINE_SIZE);
   VkDeviceSize elementCountSize = Align(sizeof(uint32_t), align);
   VkDeviceSize histogramSize = HistogramSize(maxElementCount, align);
+  VkDeviceSize tightInoutSize = TightInoutSize(maxElementCount);
   VkDeviceSize inoutSize = InoutSize(maxElementCount, align);
   uint32_t inoutSlots = sortMode == VRDX_SORT_MODE_KEY_VALUE ? 2 : 1;
 
   layout->histogramOffset = elementCountSize;
   layout->inoutOffset = elementCountSize + histogramSize;
+  layout->tightInoutSize = tightInoutSize;
   layout->inoutSize = inoutSize;
   layout->size = layout->inoutOffset + inoutSlots * inoutSize;
 }
@@ -336,6 +343,7 @@ void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSor
 
   VkDeviceSize histogramOffset = storageOffset + layout.histogramOffset;
   VkDeviceSize inoutOffset = storageOffset + layout.inoutOffset;
+  VkDeviceSize tightInoutSize = layout.tightInoutSize;
   VkDeviceSize inoutSize = layout.inoutSize;
 
   if (queryPool) {
@@ -383,11 +391,11 @@ void vrdxCmdSort(VkCommandBuffer commandBuffer, VrdxSorter sorter, const VrdxSor
     buffers[1] = {storageBuffer, histogramOffset, sizeof(uint32_t) * 4 * RADIX};
     buffers[2] = {storageBuffer, histogramOffset + sizeof(uint32_t) * 4 * RADIX,
                   sizeof(uint32_t) * partitionCount * RADIX};
-    buffers[3] = {keysBuffer, keysOffset, inoutSize};
+    buffers[3] = {keysBuffer, keysOffset, tightInoutSize};
     buffers[4] = {storageBuffer, inoutOffset, inoutSize};
     if (valuesBuffer) {
       writeCount = 7;
-      buffers[5] = {valuesBuffer, valuesOffset, inoutSize};
+      buffers[5] = {valuesBuffer, valuesOffset, tightInoutSize};
       buffers[6] = {storageBuffer, inoutOffset + inoutSize, inoutSize};
     }
 
