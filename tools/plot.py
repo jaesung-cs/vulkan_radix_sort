@@ -70,7 +70,7 @@ def main():
     data, versions = load(args.csvs)
 
     backends = sorted(data.keys())
-    ns = sorted(next(iter(next(iter(data.values())).values())).keys())
+    ns = sorted({n for sorts in data.values() for series in sorts.values() for n in series})
 
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
     backend_color = {b: colors[i % len(colors)]
@@ -93,18 +93,25 @@ def main():
     def plot_panel(ax, sort, title):
         for backend in backends:
             color = backend_color[backend]
+            backend_ns = sorted(data[backend][sort].keys())
             for timing, ls in [("gpu", "-"), ("cpu", "--")]:
-                ys = [data[backend][sort][n][timing] for n in ns]
-                ax.plot(ns, ys, color=color, linestyle=ls,
+                ys = [data[backend][sort][n][timing] for n in backend_ns]
+                ax.plot(backend_ns, ys, color=color, linestyle=ls,
                         label=f"{backend} {timing.upper()}")
         ax.set_ylabel("Throughput (GItems/s)")
         ax.set_title(title)
         ax.xaxis.set_major_formatter(
             ticker.FuncFormatter(lambda x, _: f"{int(x):,}")
         )
-        for n in ns:
-            if n > 0 and (n & (n - 1)) == 0:
-                ax.text(n, 0.01, f"$2^{{{int(math.log2(n))}}}$",
+        # N values may be disturbed by a small random offset from their intended
+        # power-of-two-aligned grid point, so snap to the nearest N instead of
+        # requiring an exact match.
+        n_min, n_max = ns[0], ns[-1]
+        for k in range(math.ceil(math.log2(n_min)), math.floor(math.log2(n_max)) + 1):
+            target = 1 << k
+            nearest = min(ns, key=lambda n: abs(n - target))
+            if abs(nearest - target) <= target * 0.02:
+                ax.text(nearest, 0.01, f"$2^{{{k}}}$",
                         transform=ax.get_xaxis_transform(),
                         ha="center", va="bottom", fontsize=8, color="gray")
         ax.xaxis.set_major_locator(ticker.FixedLocator(ns[3::4]))
