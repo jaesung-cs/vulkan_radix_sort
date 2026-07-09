@@ -208,6 +208,9 @@ VulkanBenchmark::~VulkanBenchmark() {
   vkDeviceWaitIdle(device_);
 
   if (keys_.buffer) vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
+  if (values_.buffer) vmaDestroyBuffer(allocator_, values_.buffer, values_.allocation);
+  if (element_count_.buffer)
+    vmaDestroyBuffer(allocator_, element_count_.buffer, element_count_.allocation);
   if (storage_.buffer) vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
   if (staging_.buffer) vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
@@ -261,7 +264,7 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VrdxSorterStorageRequirements requirements;
-  vrdxGetSorterStorageRequirements(sorter_, element_count, &requirements);
+  vrdxGetSorterStorageRequirements(sorter_, element_count, VRDX_SORT_MODE_KEYS_ONLY, &requirements);
   Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -292,8 +295,12 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSort(command_buffer_, sorter_, element_count, keys_.buffer, 0, storage_.buffer, 0,
-              query_pool_, 0);
+  VrdxSortInfo sort_info = {};
+  sort_info.elementCount = element_count;
+  sort_info.keysBuffer = keys_.buffer;
+  sort_info.storageBuffer = storage_.buffer;
+  sort_info.queryPool = query_pool_;
+  vrdxCmdSort(command_buffer_, sorter_, &sort_info);
 
   vkEndCommandBuffer(command_buffer_);
   auto cpu_start = std::chrono::steady_clock::now();
@@ -331,8 +338,8 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
   for (int pass = 0; pass < 4; ++pass) {
-    result.upsweep_ns   += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
-    result.spine_ns     += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+    result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+    result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
     result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
   }
   return result;
@@ -343,14 +350,20 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   uint32_t element_count = keys.size();
   uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
-  Reallocate(&staging_, 2 * inout_size + min_buffer_alignment_,
+  Reallocate(&staging_, 2 * inout_size + sizeof(uint32_t),
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
-  Reallocate(&keys_, 2 * inout_size + min_buffer_alignment_,
+  Reallocate(&keys_, inout_size,
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  Reallocate(&values_, inout_size,
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+  Reallocate(&element_count_, sizeof(uint32_t),
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   VrdxSorterStorageRequirements requirements;
-  vrdxGetSorterKeyValueStorageRequirements(sorter_, element_count, &requirements);
+  vrdxGetSorterStorageRequirements(sorter_, element_count, VRDX_SORT_MODE_KEY_VALUE, &requirements);
   Reallocate(&storage_, requirements.size, requirements.usage);
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
@@ -364,12 +377,25 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
 
   vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
-  // copy to keys buffer
-  VkBufferCopy region = {};
-  region.srcOffset = 0;
-  region.dstOffset = 0;
-  region.size = 2 * inout_size + sizeof(uint32_t);
-  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
+  // copy to keys/values/element count buffers
+  VkBufferCopy keys_region = {};
+  keys_region.srcOffset = 0;
+  keys_region.dstOffset = 0;
+  keys_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &keys_region);
+
+  VkBufferCopy values_region = {};
+  values_region.srcOffset = inout_size;
+  values_region.dstOffset = 0;
+  values_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, values_.buffer, 1, &values_region);
+
+  VkBufferCopy element_count_region = {};
+  element_count_region.srcOffset = 2 * inout_size;
+  element_count_region.dstOffset = 0;
+  element_count_region.size = sizeof(uint32_t);
+  vkCmdCopyBuffer(command_buffer_, staging_.buffer, element_count_.buffer, 1,
+                  &element_count_region);
 
   vkEndCommandBuffer(command_buffer_);
 
@@ -383,9 +409,14 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vrdxCmdSortKeyValueIndirect(command_buffer_, sorter_, element_count, keys_.buffer, 2 * inout_size,
-                              keys_.buffer, 0, keys_.buffer, inout_size, storage_.buffer, 0,
-                              query_pool_, 0);
+  VrdxSortInfo sort_info = {};
+  sort_info.elementCount = element_count;
+  sort_info.elementCountBuffer = element_count_.buffer;
+  sort_info.keysBuffer = keys_.buffer;
+  sort_info.valuesBuffer = values_.buffer;
+  sort_info.storageBuffer = storage_.buffer;
+  sort_info.queryPool = query_pool_;
+  vrdxCmdSort(command_buffer_, sorter_, &sort_info);
 
   vkEndCommandBuffer(command_buffer_);
   auto cpu_start = std::chrono::steady_clock::now();
@@ -397,10 +428,17 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // copy back
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  region.srcOffset = 0;
-  region.dstOffset = 0;
-  region.size = 2 * inout_size;
-  vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &region);
+  VkBufferCopy keys_back_region = {};
+  keys_back_region.srcOffset = 0;
+  keys_back_region.dstOffset = 0;
+  keys_back_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &keys_back_region);
+
+  VkBufferCopy values_back_region = {};
+  values_back_region.srcOffset = 0;
+  values_back_region.dstOffset = inout_size;
+  values_back_region.size = inout_size;
+  vkCmdCopyBuffer(command_buffer_, values_.buffer, staging_.buffer, 1, &values_back_region);
 
   vkEndCommandBuffer(command_buffer_);
   vkQueueSubmit(queue_, 1, &submit, fence_);
@@ -425,8 +463,8 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
   for (int pass = 0; pass < 4; ++pass) {
-    result.upsweep_ns   += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
-    result.spine_ns     += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+    result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+    result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
     result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
   }
   return result;

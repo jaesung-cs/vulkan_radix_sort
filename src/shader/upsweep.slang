@@ -16,22 +16,18 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
   uint partitionIndex = groupId.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
-  // discard all workgroup invocations
-  if (partitionStart >= elementCount) {
-    return;
-  }
-
   if (index < RADIX) {
     localHistogram[index] = 0;
   }
   GroupMemoryBarrierWithGroupSync();
 
   // local histogram
+  [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint keyIndex = partitionStart + WORKGROUP_SIZE * i + index;
     uint key = keyIndex < elementCount ? keys[keyIndex] : 0xffffffff;
     uint radix = bitfieldExtract(key, 8 * pass, 8);
-    __atomic_add(localHistogram[radix], 1, MemoryOrder.Relaxed);
+    InterlockedAdd(localHistogram[radix], 1);
   }
   GroupMemoryBarrierWithGroupSync();
 
@@ -40,6 +36,6 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
     partitionHistogram[RADIX * partitionIndex + index] = localHistogram[index];
 
     // add to global histogram
-    __atomic_add(globalHistogram[RADIX * pass + index], localHistogram[index], MemoryOrder.Relaxed);
+    InterlockedAdd(globalHistogram[RADIX * pass + index], localHistogram[index]);
   }
 }

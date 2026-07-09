@@ -48,6 +48,8 @@ class VulkanBenchmark : public BenchmarkBase {
 
   VrdxSorter sorter_ = VK_NULL_HANDLE;
   Buffer keys_;
+  Buffer values_;
+  Buffer element_count_;
   Buffer storage_;
   Buffer staging_;
 };

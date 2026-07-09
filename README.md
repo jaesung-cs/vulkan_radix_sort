@@ -2,7 +2,7 @@
 
 Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan library. No additional dependencies.
 
-> **Note:** As of June 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.85× on keys-only and 1.25× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
+> **Note:** As of July 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.50× on keys-only and 1.25× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
 
 
 ## Requirements
@@ -10,6 +10,7 @@ Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan
 - `VulkanSDK >= 1.4.328.1` — download from https://vulkan.lunarg.com/ (push descriptor requires >= 1.4; >= 1.4.328.1 for macOS)
 - `cmake >= 3.24`
 - Vulkan 1.3+ device with `pushDescriptor` and `synchronization2` enabled (see [Usage](#usage))
+- Subgroup size of 32 or 64 lanes, and >= 20 KiB of workgroup (`groupshared`) memory — see [Shader Constraints](#shader-constraints)
 
 `slangc` v2026.11 is downloaded automatically at configure time. To use the Vulkan SDK's `slangc` instead:
 
@@ -43,7 +44,7 @@ $ ./build/bench <type> [-o output.csv] [--validation] [--no-verify]             
 
 Plot results:
 ```bash
-$ python tools/plot.py vulkan.csv cuda.csv --output results.png
+$ python tools/plot.py vulkan.csv cuda.csv fuchsia.csv --output results.png
 ```
 
 ### Results
@@ -54,10 +55,10 @@ Median throughput at N = 2^25. Ratios relative to this library (> 1× means the 
 
 | Sort type | This library (Vulkan) | Fuchsia (Vulkan) | CUB Onesweep (CUDA) |
 |---|---|---|---|
-| 32-bit keys only | 12.07 GItems/s | 15.59 GItems/s (1.29×) | 22.36 GItems/s (1.85×) |
+| 32-bit keys only | 14.93 GItems/s | 15.59 GItems/s (1.04×) | 22.36 GItems/s (1.50×) |
 | 32-bit key-value | 9.35 GItems/s | 5.32 GItems/s (0.57×) | 11.67 GItems/s (1.25×) |
 
-[Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) is faster on keys-only, but 1.76× slower on key-value. Fuchsia sorts key-value pairs as a single 64-bit key, doubling memory traffic per pass, while this library sorts the two buffers independently.
+After the downsweep shader rework (splitting the per-wave histogram accumulation from the local offset lookup), keys-only throughput is now within 4% of [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort). Fuchsia remains 1.76× slower on key-value, since it sorts key-value pairs as a single 64-bit key, doubling memory traffic per pass, while this library sorts the two buffers independently. Key-value sort still trails CUB by 1.25× and has room for a similar optimization pass.
 
 ![Benchmark Result](media/results.png)
 
@@ -136,8 +137,8 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
 
     ```c++
     VrdxSorterStorageRequirements requirements;
-    vrdxGetSorterStorageRequirements(sorter, elementCount, &requirements);         // keys only
-    vrdxGetSorterKeyValueStorageRequirements(sorter, elementCount, &requirements); // key-value
+    vrdxGetSorterStorageRequirements(sorter, elementCount, VRDX_SORT_MODE_KEYS_ONLY, &requirements);  // keys only
+    vrdxGetSorterStorageRequirements(sorter, elementCount, VRDX_SORT_MODE_KEY_VALUE, &requirements);  // key-value
 
     VkBufferCreateInfo bufferInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bufferInfo.size = requirements.size;
@@ -160,26 +161,32 @@ Copy `include/vk_radix_sort.h` into your project and include it directly.
     VkQueryPool queryPool;  // VK_NULL_HANDLE, or a timestamp query pool with at least 15 entries.
 
     // Sort keys only
-    vrdxCmdSort(commandBuffer, sorter, elementCount,
-                keysBuffer, 0,
-                storageBuffer, 0,
-                queryPool, 0);
+    VrdxSortInfo info = {};
+    info.elementCount = elementCount;
+    info.keysBuffer      = keysBuffer;
+    info.storageBuffer   = storageBuffer;
+    info.queryPool       = queryPool;
+    vrdxCmdSort(commandBuffer, sorter, &info);
 
-    // Sort keys with values
-    vrdxCmdSortKeyValue(commandBuffer, sorter, elementCount,
-                        keysBuffer, 0,
-                        valuesBuffer, 0,
-                        storageBuffer, 0,
-                        queryPool, 0);
+    // Sort keys with values (set valuesBuffer)
+    VrdxSortInfo info = {};
+    info.elementCount = elementCount;
+    info.keysBuffer      = keysBuffer;
+    info.valuesBuffer    = valuesBuffer;
+    info.storageBuffer   = storageBuffer;
+    info.queryPool       = queryPool;
+    vrdxCmdSort(commandBuffer, sorter, &info);
 
     // Sort with indirect element count (read from GPU buffer)
-    // Actual count in indirectBuffer must not exceed maxElementCount.
-    vrdxCmdSortKeyValueIndirect(commandBuffer, sorter, maxElementCount,
-                                indirectBuffer, 0,
-                                keysBuffer, 0,
-                                valuesBuffer, 0,
-                                storageBuffer, 0,
-                                queryPool, 0);
+    // Actual count in elementCountBuffer must not exceed elementCount.
+    VrdxSortInfo info = {};
+    info.elementCount       = maxElementCount;
+    info.elementCountBuffer = elementCountBuffer;
+    info.keysBuffer         = keysBuffer;
+    info.valuesBuffer       = valuesBuffer;
+    info.storageBuffer      = storageBuffer;
+    info.queryPool          = queryPool;
+    vrdxCmdSort(commandBuffer, sorter, &info);
     ```
 
 
@@ -198,6 +205,26 @@ To bump the library version, update `VERSION` in the `project()` call in `CMakeL
 ### Contributing
 
 When modifying shaders or `src/vk_radix_sort.h.in`, commit the regenerated `include/vk_radix_sort.h` as well. Use the default build (without `-DVRDX_SLANGC_FROM_SDK=ON`) to ensure the output is reproducible.
+
+
+## Shader Constraints
+
+### Subgroup size
+
+The downsweep and spine shaders reduce per-wave partial sums (`waveCount = WORKGROUP_SIZE / subgroupSize` values) with a single follow-up `WavePrefixSum`/`WaveActiveSum` call. That call only sees all `waveCount` values at once if they fit in one subgroup, i.e. `waveCount <= subgroupSize`. With `WORKGROUP_SIZE = 512` this requires `subgroupSize >= sqrt(512) ≈ 22.6`, which in practice means **subgroup size 32 or 64** — the two sizes real GPUs actually expose (NVIDIA/Intel use 32, AMD uses 64). Smaller subgroup sizes (e.g. 16, on some mobile/embedded GPUs) leave `waveCount > subgroupSize`, so the reduction silently drops contributions from the waves outside the first subgroup and produces an incorrect sort rather than a validation error.
+
+### Shared memory
+
+The downsweep shader's `groupshared` arrays are sized off `RADIX = 256` and `HISTOGRAM_STRIDE = 17`:
+
+| Array | Elements | Bytes |
+|---|---|---|
+| `sh0` (per-wave histogram) | `HISTOGRAM_STRIDE * RADIX` = 4,352 | 17,408 |
+| `sh1` (radix prefix sums) | `RADIX * 2` = 512 | 2,048 |
+| `sh2` (remaining-count carry) | `RADIX` = 256 | 1,024 |
+| **Total** | 5,120 | **20,480 (20 KiB)** |
+
+Vulkan only mandates `maxComputeSharedMemorySize >= 16384` (16 KiB) as the baseline minimum, so this shader needs more workgroup memory than a spec-minimum implementation guarantees. Desktop and modern mobile GPUs comfortably support well beyond 20 KiB (typically 32–64 KiB or more), but a device sitting at the bare Vulkan floor would fail to create the downsweep pipeline.
 
 
 ## TODO
