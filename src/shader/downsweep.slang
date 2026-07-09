@@ -1,6 +1,8 @@
 import constants;
 
-static const uint HISTOGRAM_STRIDE = 16;
+// Stride for sh0[HISTOGRAM_STRIDE * radix + waveIndex].
+// Must be >= max waveCount (16 for 32-lane) and coprime to 32 (bank count) to avoid bank conflicts.
+static const uint HISTOGRAM_STRIDE = 17;
 
 StructuredBuffer<uint> elementCounts : register(t0, space0);
 RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
@@ -12,7 +14,7 @@ StructuredBuffer<uint> valuesIn : register(t5, space0);
 RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 #endif  // KEY_VALUE
 
-groupshared uint sh0[PARTITION_SIZE];
+groupshared uint sh0[HISTOGRAM_STRIDE * RADIX];
 groupshared uint sh1[RADIX * 2];
 
 uint4 WaveMatch8(uint value) {
@@ -47,10 +49,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   if (partitionStart >= elementCount)
     return;
 
-  if (index < RADIX) {
-    for (uint i = 0; i < HISTOGRAM_STRIDE; ++i) {
-      sh0[HISTOGRAM_STRIDE * index + i] = 0;
-    }
+  for (int i = index; i < HISTOGRAM_STRIDE * RADIX; i += WORKGROUP_SIZE) {
+    sh0[i] = 0;
   }
   GroupMemoryBarrierWithGroupSync();
 
@@ -96,7 +96,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     // elect a representative per radix, add to histogram
     if (waveOffset == 0) {
       // accumulate to local histogram
-      sh0[waveCount * radix + waveIndex] += radixCount;
+      sh0[HISTOGRAM_STRIDE * radix + waveIndex] += radixCount;
       localCounts[i] = radixCount;
     } else {
       localCounts[i] = 0;
@@ -106,12 +106,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
-  // cumsum (256, 16), axis=1
+  // cumsum (256, 17), axis=1
   for (uint i = index; i < RADIX * waveCount; i += WORKGROUP_SIZE) {
-    uint v = sh0[i];
+    uint x = i / waveCount;
+    uint y = i % waveCount;
+    uint id = x * HISTOGRAM_STRIDE + y;
+
+    uint v = sh0[id];
     uint excl = WavePrefixSum(v);
     uint prev = WaveReadLaneAt(excl, laneIndex / waveCount * waveCount);
-    sh0[i] = excl - prev;
+    sh0[id] = excl - prev;
     if ((i + 1) % waveCount == 0) {
       sh1[i / waveCount] = excl + v - prev;
     }
