@@ -48,7 +48,6 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
   if (index < RADIX) {
-    sh1[index] = 0;
     sh2[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index];
   }
   for (int i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] = 0;
@@ -70,29 +69,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 #ifdef KEY_VALUE
     localValues[i] = keyIndex < elementCount ? valuesIn[keyIndex] : 0;
 #endif  // KEY_VALUE
-
-    // TODO: optimize this.
-    uint radix = bitfieldExtract(key, pass * 8, 8);
-    InterlockedAdd(sh1[radix], 1);
   }
-  GroupMemoryBarrierWithGroupSync();
 
-  // prefix sum of sh3
-  if (index < RADIX) {
-    uint v = sh1[index];
-    uint excl = WavePrefixSum(v);
-    sh1[index] = excl;
-    if (index % laneCount == laneCount - 1)
-      sh1[RADIX + index / laneCount] = excl + v;
-  }
-  GroupMemoryBarrierWithGroupSync();
-
-  if (index < RADIX / laneCount) sh1[RADIX + index] = WavePrefixSum(sh1[RADIX + index]);
-  GroupMemoryBarrierWithGroupSync();
-
-  if (index < RADIX) sh2[index] -= sh1[index] + sh1[RADIX + index / laneCount];
-  GroupMemoryBarrierWithGroupSync();
-  
   // calculate wave radix counts, offsets
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
@@ -218,9 +196,19 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
-  // reload keys
+  // reload keys, and find each full-byte radix's local start position in the
+  // now fully (stably) sorted sh1 by detecting boundaries between neighbors.
+  // this replaces the separate atomic histogram pass that used to run before
+  // the sort; reuse sh0 (no longer needed after the scatter above) to hold it.
   [ForceUnroll]
-  for (int i = 0; i < PARTITION_DIVISION; ++i) localKeys[i] = sh1[i * WORKGROUP_SIZE + index];
+  for (int i = 0; i < PARTITION_DIVISION; ++i) {
+    uint id = i * WORKGROUP_SIZE + index;
+    uint key = sh1[id];
+    uint radix = bitfieldExtract(key, pass * 8, 8);
+    uint prevRadix = bitfieldExtract(id == 0 ? key : sh1[id - 1], pass * 8, 8);
+    if (id == 0 || radix != prevRadix) sh0[radix] = id;
+    localKeys[i] = key;
+  }
   GroupMemoryBarrierWithGroupSync();
 
   // scatter values to sh1
@@ -240,7 +228,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint id = i * WORKGROUP_SIZE + index;
     uint key = localKeys[i];
     uint radix = bitfieldExtract(key, pass * 8, 8);
-    uint dstOffset = sh2[radix] + id;
+    uint dstOffset = sh2[radix] - sh0[radix] + id;
     if (dstOffset < elementCount) {
       keysOut[dstOffset] = key;
 #ifdef KEY_VALUE
