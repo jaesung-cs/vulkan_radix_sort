@@ -124,24 +124,27 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
+  // reset sh0
+  for (int i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] = 0;
+  
   // reload keys
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) localKeys[i] = sh1[i * WORKGROUP_SIZE + index];
-  GroupMemoryBarrierWithGroupSync();
 
   // scatter values to sh1
 #ifdef KEY_VALUE
+  // only needed here to guard the sh1 write below; skip it in keys-only builds
+  // since nothing touches sh1 again until the next pass's own barrier.
+  GroupMemoryBarrierWithGroupSync();
+
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) sh1[localOffsets[i]] = localValues[i];
   GroupMemoryBarrierWithGroupSync();
 
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) localValues[i] = sh1[i * WORKGROUP_SIZE + index];
-  GroupMemoryBarrierWithGroupSync();
 #endif  // KEY_VALUE
 
-  // reset sh0
-  for (int i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] = 0;
   GroupMemoryBarrierWithGroupSync();
 
   // calculate wave radix counts, offsets
