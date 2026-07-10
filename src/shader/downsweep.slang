@@ -10,7 +10,10 @@ StructuredBuffer<uint> valuesIn : register(t5, space0);
 RWStructuredBuffer<uint> valuesOut : register(u6, space0);
 #endif  // KEY_VALUE
 
-groupshared uint sh0[RADIX4 * 128];
+// sh0 rows are padded from H to H+1 elements (H+1 is always odd, hence coprime
+// to the 32-wide bank count) so that different radices at the same (i, wave)
+// column land in different banks instead of all colliding in one.
+groupshared uint sh0[RADIX4 * (128 + 1)];
 groupshared uint sh1[PARTITION_SIZE];
 groupshared uint sh2[RADIX];
 
@@ -50,11 +53,15 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   if (index < RADIX) {
     sh2[index] = globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index];
   }
-  for (int i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] = 0;
+  for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i + i / H] = 0;
   GroupMemoryBarrierWithGroupSync();
 
   uint localKeys[PARTITION_DIVISION];
   uint localOffsets[PARTITION_DIVISION];
+  // radix (4 bits) for each of the PARTITION_DIVISION keys, packed into one
+  // register instead of a second 8-wide array, so the scatter loop below can
+  // reuse it instead of re-extracting from key.
+  uint packedRadix;
 #ifdef KEY_VALUE
   uint localValues[PARTITION_DIVISION];
 #endif  // KEY_VALUE
@@ -72,10 +79,12 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
 
   // calculate wave radix counts, offsets
+  packedRadix = 0;
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint key = localKeys[i];
     uint radix = bitfieldExtract(key, pass * 8 + 0, 4);
+    packedRadix |= radix << (4 * i);
 
     // mask per digit
     uint4 mask = WaveMatch4(radix);
@@ -85,15 +94,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint radixCount = _WaveCountBits(mask);
 
     localOffsets[i] = waveOffset;
-    if (waveOffset == 0) sh0[radix * H + i * waveCount + waveIndex] += radixCount;
+    if (waveOffset == 0) sh0[radix * (H + 1) + i * waveCount + waveIndex] += radixCount;
   }
   GroupMemoryBarrierWithGroupSync();
 
   // cumsum (16, 128) = (2048)
   for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) {
-    uint v = sh0[i];
+    uint p = i + i / H;
+    uint v = sh0[p];
     uint excl = WavePrefixSum(v);
-    sh0[i] = excl;
+    sh0[p] = excl;
     if (i % laneCount == laneCount - 1)
       sh1[i / laneCount] = excl + v;
   }
@@ -111,22 +121,22 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
-  for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] += sh1[i / laneCount];
+  for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i + i / H] += sh1[i / laneCount];
   GroupMemoryBarrierWithGroupSync();
 
   // scatter keys to sh1
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint key = localKeys[i];
-    uint radix = bitfieldExtract(key, pass * 8 + 0, 4);
-    localOffsets[i] += sh0[radix * H + i * waveCount + waveIndex];
+    uint radix = (packedRadix >> (4 * i)) & 0xf;
+    localOffsets[i] += sh0[radix * (H + 1) + i * waveCount + waveIndex];
     sh1[localOffsets[i]] = key;
   }
   GroupMemoryBarrierWithGroupSync();
 
   // reset sh0
-  for (int i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] = 0;
-  
+  for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i + i / H] = 0;
+
   // reload keys
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) localKeys[i] = sh1[i * WORKGROUP_SIZE + index];
@@ -148,10 +158,12 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   GroupMemoryBarrierWithGroupSync();
 
   // calculate wave radix counts, offsets
+  packedRadix = 0;
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint key = localKeys[i];
     uint radix = bitfieldExtract(key, pass * 8 + 4, 4);
+    packedRadix |= radix << (4 * i);
 
     // mask per digit
     uint4 mask = WaveMatch4(radix);
@@ -161,15 +173,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint radixCount = _WaveCountBits(mask);
 
     localOffsets[i] = waveOffset;
-    if (waveOffset == 0) sh0[radix * H + i * waveCount + waveIndex] += radixCount;
+    if (waveOffset == 0) sh0[radix * (H + 1) + i * waveCount + waveIndex] += radixCount;
   }
   GroupMemoryBarrierWithGroupSync();
 
   // cumsum (16, 128) = (2048)
   for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) {
-    uint v = sh0[i];
+    uint p = i + i / H;
+    uint v = sh0[p];
     uint excl = WavePrefixSum(v);
-    sh0[i] = excl;
+    sh0[p] = excl;
     if (i % laneCount == laneCount - 1) sh1[i / laneCount] = excl + v;
   }
   GroupMemoryBarrierWithGroupSync();
@@ -186,15 +199,15 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
-  for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i] += sh1[i / laneCount];
+  for (uint i = index; i < RADIX4 * H; i += WORKGROUP_SIZE) sh0[i + i / H] += sh1[i / laneCount];
   GroupMemoryBarrierWithGroupSync();
 
   // scatter keys to sh1
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint key = localKeys[i];
-    uint radix = bitfieldExtract(key, pass * 8 + 4, 4);
-    localOffsets[i] += sh0[radix * H + i * waveCount + waveIndex];
+    uint radix = (packedRadix >> (4 * i)) & 0xf;
+    localOffsets[i] += sh0[radix * (H + 1) + i * waveCount + waveIndex];
     sh1[localOffsets[i]] = key;
   }
   GroupMemoryBarrierWithGroupSync();
