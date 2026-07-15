@@ -45,26 +45,28 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   uint partitionIndex = groupId.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
-  if (index < RADIX) {
-    sh2[index] =
-        globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index];
-  }
-  for (int i = index; i < HISTOGRAM_STRIDE * RADIX; i += WORKGROUP_SIZE) {
-    sh0[i] = 0;
-  }
-
+  uint4 waveMask = WaveGetLaneLtMask();
+  
   uint localKeys[PARTITION_DIVISION];
   uint localOffsets[PARTITION_DIVISION];
 #ifdef KEY_VALUE
   uint localValues[PARTITION_DIVISION];
 #endif  // KEY_VALUE
 
-  GroupMemoryBarrierWithGroupSync();
+  // load global/partition histograms
+  if (index < RADIX) {
+    sh2[index] =
+        globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index];
+  }
+  // fill zero (256, 16)
+  for (int i = laneIndex; i < RADIX; i += laneCount) {
+    sh0[HISTOGRAM_STRIDE * i + waveIndex] = 0;
+  }
 
   // load keys from global memory
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
-    // view (4096) input partition as (:, PARTITION_DIVISION, laneCount)
+    // view (4096) input partition as (waveCount, PARTITION_DIVISION, laneCount)
     // where axis=0 for wave index, axis=1 for partition division, axis=2 for lane index.
     uint keyIndex =
         partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
@@ -77,8 +79,6 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
 
   // calculate wave radix counts, offsets
-  uint4 waveMask = WaveGetLaneLtMask();
-
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint key = localKeys[i];
@@ -91,16 +91,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint waveOffset = _WaveCountBits(waveMask & mask);
     uint radixCount = _WaveCountBits(mask);
 
+    // no barriers between sh0; 8-fold 32- or 64-warp histograms are loaded and stored sequentially.
     localOffsets[i] = sh0[HISTOGRAM_STRIDE * radix + waveIndex] + waveOffset;
-    GroupMemoryBarrierWithGroupSync();
 
     // elect a representative per radix, add to histogram
     if (waveOffset == 0) {
       // accumulate to local histogram
       sh0[HISTOGRAM_STRIDE * radix + waveIndex] += radixCount;
     }
-    GroupMemoryBarrierWithGroupSync();
   }
+  GroupMemoryBarrierWithGroupSync();
 
   // cumsum (256, 17), axis=1
   for (uint i = index; i < RADIX * waveCount; i += WORKGROUP_SIZE) {
@@ -164,13 +164,14 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint id = i * WORKGROUP_SIZE + index;
     uint key = sh0[id];
     uint radix = bitfieldExtract(key, pass * 8, 8);
-    uint dstOffset = sh2[radix] + id;
-    if (dstOffset < elementCount) {
-      keysOut[dstOffset] = key;
+    uint dst = sh2[radix] + id;
+    if (dst < elementCount) {
+      keysOut[dst] = key;
     }
 
 #ifdef KEY_VALUE
-    localKeys[i] = dstOffset;
+    // now localKeys is unused, alias registers to store global destination.
+    localKeys[i] = dst;
 #endif  // KEY_VALUE
   }
 
@@ -187,9 +188,9 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint id = i * WORKGROUP_SIZE + index;
     uint value = sh0[id];
-    uint dstOffset = localKeys[i];
-    if (dstOffset < elementCount) {
-      valuesOut[dstOffset] = value;
+    uint dst = localKeys[i];
+    if (dst < elementCount) {
+      valuesOut[dst] = value;
     }
   }
 #endif  // KEY_VALUE
