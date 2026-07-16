@@ -1,16 +1,16 @@
 import constants;
 
-StructuredBuffer<uint> elementCounts : register(t0, space0);
-RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
-RWStructuredBuffer<uint> partitionHistogram : register(u2, space0);
-StructuredBuffer<uint> keys : register(t3, space0);
+ByteAddressBuffer elementCounts : register(t0, space0);
+RWByteAddressBuffer globalHistogram : register(u1, space0);
+RWByteAddressBuffer partitionHistogram : register(u2, space0);
+ByteAddressBuffer keys : register(t3, space0);
 
 groupshared uint localHistogram[RADIX];
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE)]
 void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, uniform int pass) {
-  uint elementCount = elementCounts[0];
+  uint elementCount = elementCounts.Load<uint>(0);
 
   uint index = groupThreadID.x;
   uint partitionIndex = groupId.x;
@@ -25,7 +25,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
     uint keyIndex = partitionStart + WORKGROUP_SIZE * i + index;
-    uint key = keyIndex < elementCount ? keys[keyIndex] : 0xffffffff;
+    uint key = keyIndex < elementCount ? keys.Load<uint>(keyIndex * sizeof(uint)) : 0xffffffff;
     uint radix = bitfieldExtract(key, 8 * pass, 8);
     InterlockedAdd(localHistogram[radix], 1);
   }
@@ -33,9 +33,9 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
 
   if (index < RADIX) {
     // set to partition histogram
-    partitionHistogram[RADIX * partitionIndex + index] = localHistogram[index];
+    partitionHistogram.Store<uint>((RADIX * partitionIndex + index) * sizeof(uint), localHistogram[index]);
 
     // add to global histogram
-    InterlockedAdd(globalHistogram[RADIX * pass + index], localHistogram[index]);
+    globalHistogram.InterlockedAdd((RADIX * pass + index) * sizeof(uint), localHistogram[index]);
   }
 }

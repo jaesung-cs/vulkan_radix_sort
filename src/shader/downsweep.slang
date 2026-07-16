@@ -4,14 +4,14 @@ import constants;
 // Must be >= max waveCount (16 for 32-lane) and coprime to 32 (bank count) to avoid bank conflicts.
 static const uint HISTOGRAM_STRIDE = 17;
 
-StructuredBuffer<uint> elementCounts : register(t0, space0);
-RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
-RWStructuredBuffer<uint> partitionHistogram : register(u2, space0);
-StructuredBuffer<uint> keysIn : register(t3, space0);
-RWStructuredBuffer<uint> keysOut : register(u4, space0);
+ByteAddressBuffer elementCounts : register(t0, space0);
+RWByteAddressBuffer globalHistogram : register(u1, space0);
+RWByteAddressBuffer partitionHistogram : register(u2, space0);
+ByteAddressBuffer keysIn : register(t3, space0);
+RWByteAddressBuffer keysOut : register(u4, space0);
 #ifdef KEY_VALUE
-StructuredBuffer<uint> valuesIn : register(t5, space0);
-RWStructuredBuffer<uint> valuesOut : register(u6, space0);
+ByteAddressBuffer valuesIn : register(t5, space0);
+RWByteAddressBuffer valuesOut : register(u6, space0);
 #endif  // KEY_VALUE
 
 groupshared uint sh0[HISTOGRAM_STRIDE * RADIX];
@@ -34,7 +34,7 @@ uint4 WaveMatch8(uint value) {
 [numthreads(WORKGROUP_SIZE)]
 void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
           uint groupIndex: SV_GroupIndex, uniform int pass) {
-  uint elementCount = elementCounts[0];
+  uint elementCount = elementCounts.Load<uint>(0);
 
   uint laneIndex = WaveGetLaneIndex();          // 0..31 or 0..63
   uint laneCount = WaveGetLaneCount();          // 32 or 64
@@ -46,7 +46,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   uint partitionStart = partitionIndex * PARTITION_SIZE;
 
   uint4 waveMask = WaveGetLaneLtMask();
-  
+
   uint localKeys[PARTITION_DIVISION];
   uint localOffsets[PARTITION_DIVISION];
 #ifdef KEY_VALUE
@@ -55,8 +55,8 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 
   // load global/partition histograms
   if (index < RADIX) {
-    sh2[index] =
-        globalHistogram[RADIX * pass + index] + partitionHistogram[RADIX * partitionIndex + index];
+    sh2[index] = globalHistogram.Load<uint>((RADIX * pass + index) * sizeof(uint)) +
+                 partitionHistogram.Load<uint>((RADIX * partitionIndex + index) * sizeof(uint));
   }
   // fill zero (256, 16)
   for (int i = laneIndex; i < RADIX; i += laneCount) {
@@ -70,11 +70,11 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     // where axis=0 for wave index, axis=1 for partition division, axis=2 for lane index.
     uint keyIndex =
         partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
-    uint key = keyIndex < elementCount ? keysIn[keyIndex] : 0xffffffff;
+    uint key = keyIndex < elementCount ? keysIn.Load<uint>(keyIndex * sizeof(uint)) : 0xffffffff;
     localKeys[i] = key;
 
 #ifdef KEY_VALUE
-    localValues[i] = keyIndex < elementCount ? valuesIn[keyIndex] : 0;
+    localValues[i] = keyIndex < elementCount ? valuesIn.Load<uint>(keyIndex * sizeof(uint)) : 0;
 #endif  // KEY_VALUE
   }
 
@@ -166,7 +166,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint radix = bitfieldExtract(key, pass * 8, 8);
     uint dst = sh2[radix] + id;
     if (dst < elementCount) {
-      keysOut[dst] = key;
+      keysOut.Store<uint>(dst * sizeof(uint), key);
     }
 
 #ifdef KEY_VALUE
@@ -190,7 +190,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     uint value = sh0[id];
     uint dst = localKeys[i];
     if (dst < elementCount) {
-      valuesOut[dst] = value;
+      valuesOut.Store<uint>(dst * sizeof(uint), value);
     }
   }
 #endif  // KEY_VALUE
