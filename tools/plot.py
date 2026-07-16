@@ -32,8 +32,11 @@ def load(paths):
         file_backends = set()
         with open(path, newline="") as f:
             reader = csv.DictReader(
-                (line for line in f
-                 if not line.startswith("#") or _parse_meta(line, file_meta)),
+                (
+                    line
+                    for line in f
+                    if not line.startswith("#") or _parse_meta(line, file_meta)
+                ),
             )
             for row in reader:
                 backend = row["backend"]
@@ -73,8 +76,7 @@ def main():
     ns = sorted({n for sorts in data.values() for series in sorts.values() for n in series})
 
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
-    backend_color = {b: colors[i % len(colors)]
-                     for i, b in enumerate(backends)}
+    backend_color = {b: colors[i % len(colors)] for i, b in enumerate(backends)}
 
     fig, (ax_keys, ax_kv) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
 
@@ -96,8 +98,13 @@ def main():
             backend_ns = sorted(data[backend][sort].keys())
             for timing, ls in [("gpu", "-"), ("cpu", "--")]:
                 ys = [data[backend][sort][n][timing] for n in backend_ns]
-                ax.plot(backend_ns, ys, color=color, linestyle=ls,
-                        label=f"{backend} {timing.upper()}")
+                ax.plot(
+                    backend_ns,
+                    ys,
+                    color=color,
+                    linestyle=ls,
+                    label=f"{backend} {timing.upper()}",
+                )
         ax.set_ylabel("Throughput (GItems/s)")
         ax.set_title(title)
         ax.xaxis.set_major_formatter(
@@ -111,9 +118,16 @@ def main():
             target = 1 << k
             nearest = min(ns, key=lambda n: abs(n - target))
             if abs(nearest - target) <= target * 0.02:
-                ax.text(nearest, 0.01, f"$2^{{{k}}}$",
-                        transform=ax.get_xaxis_transform(),
-                        ha="center", va="bottom", fontsize=8, color="gray")
+                ax.text(
+                    nearest,
+                    0.01,
+                    f"$2^{{{k}}}$",
+                    transform=ax.get_xaxis_transform(),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    color="gray",
+                )
         ax.xaxis.set_major_locator(ticker.FixedLocator(ns[3::4]))
         ax.set_xticks(ns, minor=True)
         ax.yaxis.set_major_locator(ticker.AutoLocator())
@@ -123,7 +137,7 @@ def main():
         ax.grid(True, which="minor", linestyle=":", alpha=0.2)
 
     plot_panel(ax_keys, "keys", "Keys-Only Sort")
-    plot_panel(ax_kv,   "kv",   "Key-Value Sort")
+    plot_panel(ax_kv, "kv", "Key-Value Sort")
 
     ax_kv.set_xlabel("N (elements)")
     plt.setp(ax_kv.get_xticklabels(), rotation=90)
