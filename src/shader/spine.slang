@@ -1,8 +1,8 @@
 import constants;
 
-StructuredBuffer<uint> elementCounts : register(t0, space0);
-RWStructuredBuffer<uint> globalHistogram : register(u1, space0);
-RWStructuredBuffer<uint> partitionHistogram : register(u2, space0);
+ByteAddressBuffer elementCounts : register(t0, space0);
+RWByteAddressBuffer globalHistogram : register(u1, space0);
+RWByteAddressBuffer partitionHistogram : register(u2, space0);
 
 groupshared uint reduction;
 groupshared uint intermediate[MAX_SUBGROUP_SIZE];
@@ -12,7 +12,7 @@ groupshared uint intermediate[MAX_SUBGROUP_SIZE];
 [numthreads(WORKGROUP_SIZE)]
 void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
           uint groupIndex: SV_GroupIndex, uniform int pass) {
-  uint elementCount = elementCounts[0];
+  uint elementCount = elementCounts.Load<uint>(0);
 
   uint laneIndex = WaveGetLaneIndex();  // 0..31 or 0..63
   uint laneCount = WaveGetLaneCount();  // 32 or 64
@@ -31,8 +31,9 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 
   for (uint i = 0; WORKGROUP_SIZE * i < partitionCount; ++i) {
     uint partitionIndex = WORKGROUP_SIZE * i + index;
-    uint value =
-        partitionIndex < partitionCount ? partitionHistogram[RADIX * partitionIndex + radix] : 0;
+    uint value = partitionIndex < partitionCount
+                     ? partitionHistogram.Load<uint>((RADIX * partitionIndex + radix) * sizeof(uint))
+                     : 0;
     uint excl = WavePrefixSum(value) + reduction;
     uint sum = WaveActiveSum(value);
 
@@ -54,7 +55,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 
     if (partitionIndex < partitionCount) {
       excl += intermediate[waveIndex];
-      partitionHistogram[RADIX * partitionIndex + radix] = excl;
+      partitionHistogram.Store<uint>((RADIX * partitionIndex + radix) * sizeof(uint), excl);
     }
     GroupMemoryBarrierWithGroupSync();
   }
@@ -62,7 +63,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   if (radix == 0) {
     // one workgroup is responsible for global histogram prefix sum
     if (index < RADIX) {
-      uint value = globalHistogram[RADIX * pass + index];
+      uint value = globalHistogram.Load<uint>((RADIX * pass + index) * sizeof(uint));
       uint excl = WavePrefixSum(value);
       uint sum = WaveActiveSum(value);
 
@@ -78,7 +79,7 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
       GroupMemoryBarrierWithGroupSync();
 
       excl += intermediate[waveIndex];
-      globalHistogram[RADIX * pass + index] = excl;
+      globalHistogram.Store<uint>((RADIX * pass + index) * sizeof(uint), excl);
     }
   }
 }
