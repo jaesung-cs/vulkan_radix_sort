@@ -118,9 +118,14 @@ Row measure(BenchmarkBase* bench, uint32_t n, const std::string& sort, DataGener
 int main(int argc, char** argv) {
   cxxopts::Options options("bench", "Vulkan radix sort benchmark");
   options.add_options()("type", "Backend type", cxxopts::value<std::string>())(
-      "o,output", "Output CSV file", cxxopts::value<std::string>()->default_value("results.csv"))(
+      "n", "Element count(s) to run instead of the full sweep (repeat -n for multiple)",
+      cxxopts::value<std::vector<uint32_t>>())(
+      "o,output", "Output CSV file; if omitted, no CSV is written", cxxopts::value<std::string>())(
       "validation", "Enable Vulkan validation layers")(
-      "no-verify", "Skip correctness check and proceed to benchmarking")("h,help", "Print usage");
+      "timestamps",
+      "Enable per-stage GPU timing via Vulkan query pool (adds timestamp overhead; Vulkan backend "
+      "only)")("no-verify", "Skip correctness check and proceed to benchmarking")("h,help",
+                                                                                  "Print usage");
   options.parse_positional({"type"});
   options.positional_help("<type>");
   options.custom_help(
@@ -144,13 +149,15 @@ int main(int argc, char** argv) {
   }
 
   std::string type = result["type"].as<std::string>();
-  std::string csv_path = result["output"].as<std::string>();
+  bool has_csv = result.count("output") > 0;
+  std::string csv_path = has_csv ? result["output"].as<std::string>() : "";
   bool validation = result.count("validation") > 0;
+  bool timestamps = result.count("timestamps") > 0;
   bool no_verify = result.count("no-verify") > 0;
 
   std::unique_ptr<BenchmarkBase> bench, cpu;
   try {
-    bench = BenchmarkFactory::Create(type, validation);
+    bench = BenchmarkFactory::Create(type, validation, timestamps);
     cpu = BenchmarkFactory::Create("cpu");
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
@@ -160,11 +167,19 @@ int main(int argc, char** argv) {
   DataGenerator gen;
   std::vector<Row> rows;
 
-  std::mt19937 rng(42);
-  std::uniform_int_distribution<uint32_t> disturb(0, kNDisturbance - 1);
+  std::vector<uint32_t> ns;
+  if (result.count("n")) {
+    ns = result["n"].as<std::vector<uint32_t>>();
+  } else {
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<uint32_t> disturb(0, kNDisturbance - 1);
+    for (int i = 0; i < kNCount; ++i) {
+      ns.push_back(kNMin + static_cast<uint32_t>(i) * kNStep + disturb(rng));
+    }
+  }
 
-  for (int i = 0; i < kNCount; ++i) {
-    uint32_t n = kNMin + static_cast<uint32_t>(i) * kNStep + disturb(rng);
+  for (size_t i = 0; i < ns.size(); ++i) {
+    uint32_t n = ns[i];
 
     if (!no_verify) {
       if (!checkCorrectness(bench.get(), cpu.get(), n, gen)) return 1;
@@ -174,7 +189,7 @@ int main(int argc, char** argv) {
       Row row = measure(bench.get(), n, sort, gen);
       rows.push_back(row);
 
-      std::cout << "[" << std::setw(3) << i + 1 << "/" << kNCount << "]"
+      std::cout << "[" << std::setw(3) << i + 1 << "/" << ns.size() << "]"
                 << " N=" << std::setw(9) << n << " [" << std::setw(4) << sort << "]"
                 << "  gpu: " << std::fixed << std::setprecision(3) << row.gpu_ms << "ms"
                 << " (" << std::setprecision(2) << row.gpu_gitems_s << " GItems/s)"
@@ -193,20 +208,22 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::ofstream csv(csv_path);
-  if (!csv) {
-    std::cerr << "Failed to open " << csv_path << " for writing" << std::endl;
-    return 1;
-  }
+  if (has_csv) {
+    std::ofstream csv(csv_path);
+    if (!csv) {
+      std::cerr << "Failed to open " << csv_path << " for writing" << std::endl;
+      return 1;
+    }
 
-  std::string lib_ver = bench->LibraryVersion();
-  if (!lib_ver.empty()) csv << "# version: " << lib_ver << "\n";
-  csv << "backend,n,sort,gpu_ms,cpu_ms,gpu_gitems_s,cpu_gitems_s\n";
-  for (const auto& r : rows) {
-    csv << type << "," << r.n << "," << r.sort << "," << std::fixed << std::setprecision(6)
-        << r.gpu_ms << "," << r.cpu_ms << "," << r.gpu_gitems_s << "," << r.cpu_gitems_s << "\n";
-  }
+    std::string lib_ver = bench->LibraryVersion();
+    if (!lib_ver.empty()) csv << "# version: " << lib_ver << "\n";
+    csv << "backend,n,sort,gpu_ms,cpu_ms,gpu_gitems_s,cpu_gitems_s\n";
+    for (const auto& r : rows) {
+      csv << type << "," << r.n << "," << r.sort << "," << std::fixed << std::setprecision(6)
+          << r.gpu_ms << "," << r.cpu_ms << "," << r.gpu_gitems_s << "," << r.cpu_gitems_s << "\n";
+    }
 
-  std::cout << "\nResults written to " << csv_path << std::endl;
+    std::cout << "\nResults written to " << csv_path << std::endl;
+  }
   return 0;
 }

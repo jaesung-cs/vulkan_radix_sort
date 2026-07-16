@@ -8,8 +8,10 @@ Usage:
 
 import argparse
 import datetime
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -86,8 +88,6 @@ def main():
         if args.output_dir
         else REPO_ROOT / "benchmarks" / timestamp
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"output: {out_dir}")
 
     extra = []
     if args.no_verify:
@@ -95,26 +95,35 @@ def main():
     if args.validation:
         extra.append("--validation")
 
-    csvs = []
-    for backend in args.backends:
-        csv = out_dir / f"{backend}.csv"
-        if run_backend(bench, backend, csv, extra):
-            csvs.append(csv)
+    # Write to a scratch directory first so out_dir is only created once we
+    # actually have result files to put in it (not left behind empty if
+    # every backend fails).
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        csvs = []
+        for backend in args.backends:
+            csv = tmp_dir / f"{backend}.csv"
+            if run_backend(bench, backend, csv, extra):
+                csvs.append(csv)
 
-    if not csvs:
-        print("\nAll backends failed.")
-        sys.exit(1)
+        if not csvs:
+            print("\nAll backends failed.")
+            sys.exit(1)
 
-    if not args.no_plot:
-        plot_out = out_dir / "results.png"
-        cmd = (
-            [sys.executable, str(REPO_ROOT / "tools" / "plot.py")]
-            + [str(c) for c in csvs]
-            + ["--output", str(plot_out)]
-        )
-        print(f"\n=== plot ===")
-        print("$", " ".join(cmd))
-        subprocess.run(cmd, check=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"output: {out_dir}")
+        csvs = [shutil.move(str(csv), out_dir / csv.name) for csv in csvs]
+
+        if not args.no_plot:
+            plot_out = out_dir / "results.png"
+            cmd = (
+                [sys.executable, str(REPO_ROOT / "tools" / "plot.py")]
+                + [str(c) for c in csvs]
+                + ["--output", str(plot_out)]
+            )
+            print(f"\n=== plot ===")
+            print("$", " ".join(cmd))
+            subprocess.run(cmd, check=True)
 
     print(f"\nResults in {out_dir}")
 
