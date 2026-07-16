@@ -2,7 +2,7 @@
 
 Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan library. No additional dependencies.
 
-> **Note:** As of July 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.50× on keys-only and 1.25× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
+> **Note:** As of July 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.47× on keys-only and 1.27× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
 
 ## Requirements
 
@@ -74,10 +74,10 @@ Median throughput at N = 2^25. Ratios relative to this library (> 1× means the 
 
 | Sort type | This library (Vulkan) | Fuchsia (Vulkan) | CUB Onesweep (CUDA) |
 |---|---|---|---|
-| 32-bit keys only | 14.93 GItems/s | 15.59 GItems/s (1.04×) | 22.36 GItems/s (1.50×) |
-| 32-bit key-value | 9.35 GItems/s | 5.32 GItems/s (0.57×) | 11.67 GItems/s (1.25×) |
+| 32-bit keys only | 15.23 GItems/s | 15.56 GItems/s (1.02×) | 22.46 GItems/s (1.47×) |
+| 32-bit key-value | 9.24 GItems/s | 5.33 GItems/s (0.58×) | 11.71 GItems/s (1.27×) |
 
-Keys-only is now within 4% of [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) after the downsweep rework (splitting per-wave histogram accumulation from local offset lookup). Fuchsia is 1.76× slower on key-value — it packs pairs into a single 64-bit key, doubling memory traffic, while this library sorts the two buffers independently. Key-value still trails CUB by 1.25×, with room for a similar optimization.
+Keys-only is now within 2% of [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) after the downsweep rework (splitting per-wave histogram accumulation from local offset lookup). Fuchsia is 1.73× slower on key-value — it packs pairs into a single 64-bit key, doubling memory traffic, while this library sorts the two buffers independently. Key-value still trails CUB by 1.27×, with room for a similar optimization.
 
 ![Benchmark Result](media/results.png)
 

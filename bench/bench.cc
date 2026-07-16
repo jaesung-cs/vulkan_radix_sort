@@ -1,7 +1,6 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <random>
 #include <string>
 #include <vector>
 
@@ -19,7 +18,6 @@ constexpr uint32_t kNMin = 1u << 18;
 constexpr uint32_t kNMax = 1u << 25;
 constexpr int kNCount = 128;
 constexpr uint32_t kNStep = (kNMax - kNMin) / (kNCount - 1);
-constexpr uint32_t kNDisturbance = 4096;
 
 double toMs(uint64_t ns) { return static_cast<double>(ns) / 1e6; }
 double toGItemsS(uint32_t n, uint64_t ns) {
@@ -171,10 +169,8 @@ int main(int argc, char** argv) {
   if (result.count("n")) {
     ns = result["n"].as<std::vector<uint32_t>>();
   } else {
-    std::mt19937 rng(42);
-    std::uniform_int_distribution<uint32_t> disturb(0, kNDisturbance - 1);
     for (int i = 0; i < kNCount; ++i) {
-      ns.push_back(kNMin + static_cast<uint32_t>(i) * kNStep + disturb(rng));
+      ns.push_back(kNMin + static_cast<uint32_t>(i) * kNStep);
     }
   }
 
