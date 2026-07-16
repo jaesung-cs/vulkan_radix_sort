@@ -103,7 +103,7 @@ if(PROJECT_IS_TOP_LEVEL)
   add_executable(bench ${BENCH_SOURCES})
 
   set_target_properties(bench PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
   )

@@ -8,7 +8,8 @@ class BenchmarkBase;
 
 class BenchmarkFactory {
  public:
-  static std::unique_ptr<BenchmarkBase> Create(const std::string& type, bool validation = false);
+  static std::unique_ptr<BenchmarkBase> Create(const std::string& type, bool validation = false,
+                                               bool timestamps = false);
 };
 
 #endif  // VK_RADIX_SORT_BENCHMARK_FACTORY_H

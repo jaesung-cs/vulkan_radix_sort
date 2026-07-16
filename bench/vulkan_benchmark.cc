@@ -48,25 +48,30 @@ std::string VulkanBenchmark::LibraryVersion() const {
          std::to_string(VRDX_VERSION_PATCH);
 }
 
-VulkanBenchmark::VulkanBenchmark(bool validation) {
+VulkanBenchmark::VulkanBenchmark(bool validation, bool timestamps) {
   volkInitialize();
 
   // instance
-  VkApplicationInfo application_info = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-  application_info.pApplicationName = "vk_radix_sort_benchmark";
-  application_info.applicationVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
-  application_info.pEngineName = "vk_radix_sort";
-  application_info.engineVersion = VK_MAKE_API_VERSION(0, 0, 0, 0);
-  application_info.apiVersion = VK_API_VERSION_1_4;
+  VkApplicationInfo application_info = {
+      .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+      .pApplicationName = "vk_radix_sort_benchmark",
+      .applicationVersion =
+          VK_MAKE_API_VERSION(VRDX_VERSION_MAJOR, VRDX_VERSION_MINOR, VRDX_VERSION_PATCH, 0),
+      .pEngineName = "vk_radix_sort",
+      .engineVersion =
+          VK_MAKE_API_VERSION(VRDX_VERSION_MAJOR, VRDX_VERSION_MINOR, VRDX_VERSION_PATCH, 0),
+      .apiVersion = VK_API_VERSION_1_4,
+  };
 
   VkDebugUtilsMessengerCreateInfoEXT messenger_info = {
-      VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-  messenger_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-  messenger_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-  messenger_info.pfnUserCallback = DebugCallback;
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+      .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+      .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+      .pfnUserCallback = DebugCallback,
+  };
 
   std::vector<const char*> layers;
   std::vector<const char*> instance_extensions = {
@@ -80,16 +85,18 @@ VulkanBenchmark::VulkanBenchmark(bool validation) {
     instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
 
-  VkInstanceCreateInfo instance_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+  VkInstanceCreateInfo instance_info = {
+      .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+      .pNext = validation ? &messenger_info : nullptr,
 #ifdef __APPLE__
-  instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+      .flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR,
 #endif
-  instance_info.pNext = validation ? &messenger_info : nullptr;
-  instance_info.pApplicationInfo = &application_info;
-  instance_info.enabledLayerCount = static_cast<uint32_t>(layers.size());
-  instance_info.ppEnabledLayerNames = layers.data();
-  instance_info.enabledExtensionCount = static_cast<uint32_t>(instance_extensions.size());
-  instance_info.ppEnabledExtensionNames = instance_extensions.data();
+      .pApplicationInfo = &application_info,
+      .enabledLayerCount = static_cast<uint32_t>(layers.size()),
+      .ppEnabledLayerNames = layers.data(),
+      .enabledExtensionCount = static_cast<uint32_t>(instance_extensions.size()),
+      .ppEnabledExtensionNames = instance_extensions.data(),
+  };
   vkCreateInstance(&instance_info, NULL, &instance_);
   volkLoadInstance(instance_);
 
@@ -129,10 +136,12 @@ VulkanBenchmark::VulkanBenchmark(bool validation) {
       1.f,
   };
   std::vector<VkDeviceQueueCreateInfo> queue_infos(1);
-  queue_infos[0] = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-  queue_infos[0].queueFamilyIndex = queue_family_index_;
-  queue_infos[0].queueCount = queue_priorities.size();
-  queue_infos[0].pQueuePriorities = queue_priorities.data();
+  queue_infos[0] = {
+      .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+      .queueFamilyIndex = queue_family_index_,
+      .queueCount = static_cast<uint32_t>(queue_priorities.size()),
+      .pQueuePriorities = queue_priorities.data(),
+  };
 
   std::vector<const char*> device_extensions = {
 #ifdef __APPLE__
@@ -141,66 +150,80 @@ VulkanBenchmark::VulkanBenchmark(bool validation) {
   };
 
   VkPhysicalDeviceVulkan13Features features13 = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-  features13.synchronization2 = VK_TRUE;
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+      .synchronization2 = VK_TRUE,
+  };
 
   VkPhysicalDeviceVulkan14Features features14 = {
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
-  features14.pNext = &features13;
-  features14.pushDescriptor = VK_TRUE;
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+      .pNext = &features13,
+      .pushDescriptor = VK_TRUE,
+  };
 
-  VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-  device_info.pNext = &features14;
-  device_info.queueCreateInfoCount = queue_infos.size();
-  device_info.pQueueCreateInfos = queue_infos.data();
-  device_info.enabledExtensionCount = device_extensions.size();
-  device_info.ppEnabledExtensionNames = device_extensions.data();
+  VkDeviceCreateInfo device_info = {
+      .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+      .pNext = &features14,
+      .queueCreateInfoCount = static_cast<uint32_t>(queue_infos.size()),
+      .pQueueCreateInfos = queue_infos.data(),
+      .enabledExtensionCount = static_cast<uint32_t>(device_extensions.size()),
+      .ppEnabledExtensionNames = device_extensions.data(),
+  };
   vkCreateDevice(physical_device_, &device_info, NULL, &device_);
   volkLoadDevice(device_);
 
   vkGetDeviceQueue(device_, queue_family_index_, 0, &queue_);
 
   // vma
-  VmaVulkanFunctions functions = {};
-  functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-  functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+  VmaVulkanFunctions functions = {
+      .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
+      .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
+  };
 
-  VmaAllocatorCreateInfo allocator_info = {};
-  allocator_info.physicalDevice = physical_device_;
-  allocator_info.device = device_;
-  allocator_info.instance = instance_;
-  allocator_info.pVulkanFunctions = &functions;
-  allocator_info.vulkanApiVersion = application_info.apiVersion;
+  VmaAllocatorCreateInfo allocator_info = {
+      .physicalDevice = physical_device_,
+      .device = device_,
+      .pVulkanFunctions = &functions,
+      .instance = instance_,
+      .vulkanApiVersion = application_info.apiVersion,
+  };
   vmaCreateAllocator(&allocator_info, &allocator_);
 
   // commands
-  VkCommandPoolCreateInfo command_pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  command_pool_info.flags =
-      VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-  command_pool_info.queueFamilyIndex = queue_family_index_;
+  VkCommandPoolCreateInfo command_pool_info = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .flags =
+          VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+      .queueFamilyIndex = queue_family_index_,
+  };
   vkCreateCommandPool(device_, &command_pool_info, NULL, &command_pool_);
 
   VkCommandBufferAllocateInfo command_buffer_info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-  command_buffer_info.commandPool = command_pool_;
-  command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  command_buffer_info.commandBufferCount = 1;
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .commandPool = command_pool_,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = 1,
+  };
   vkAllocateCommandBuffers(device_, &command_buffer_info, &command_buffer_);
 
   // fence
-  VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+  VkFenceCreateInfo fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
   vkCreateFence(device_, &fence_info, NULL, &fence_);
 
-  // timestamp query pool
-  VkQueryPoolCreateInfo query_pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-  query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-  query_pool_info.queryCount = timestamp_count;
-  vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
+  // timestamp query pool (optional; adds vkCmdWriteTimestamp overhead to each sort)
+  if (timestamps) {
+    VkQueryPoolCreateInfo query_pool_info = {
+        .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+        .queryType = VK_QUERY_TYPE_TIMESTAMP,
+        .queryCount = timestamp_count,
+    };
+    vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
+  }
 
   // sorter
-  VrdxSorterCreateInfo sorter_info = {};
-  sorter_info.physicalDevice = physical_device_;
-  sorter_info.device = device_;
+  VrdxSorterCreateInfo sorter_info = {
+      .physicalDevice = physical_device_,
+      .device = device_,
+  };
   vrdxCreateSorter(&sorter_info, &sorter_);
 }
 
@@ -234,15 +257,18 @@ void VulkanBenchmark::Reallocate(Buffer* buffer, VkDeviceSize size, VkBufferUsag
 
   if (buffer->allocation) vmaDestroyBuffer(allocator_, buffer->buffer, buffer->allocation);
 
-  VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  buffer_info.size = size;
-  buffer_info.usage = usage;
-  VmaAllocationCreateInfo allocation_create_info = {};
+  VkBufferCreateInfo buffer_info = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = size,
+      .usage = usage,
+  };
+  VmaAllocationCreateInfo allocation_create_info = {
+      .usage = VMA_MEMORY_USAGE_AUTO,
+  };
   if (mapped) {
     allocation_create_info.flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
   }
-  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
 
   VmaAllocationInfo allocation_info;
   vmaCreateBuffer(allocator_, &buffer_info, &allocation_create_info, &buffer->buffer,
@@ -270,24 +296,28 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
 
   VkCommandBufferBeginInfo command_buffer_begin_info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-  command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+  };
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
+  if (query_pool_) vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
   // copy to keys buffer
-  VkBufferCopy region = {};
-  region.srcOffset = 0;
-  region.dstOffset = 0;
-  region.size = element_count * sizeof(uint32_t);
+  VkBufferCopy region = {
+      .srcOffset = 0,
+      .dstOffset = 0,
+      .size = element_count * sizeof(uint32_t),
+  };
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &region);
 
   vkEndCommandBuffer(command_buffer_);
 
-  VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-  submit.commandBufferCount = 1;
-  submit.pCommandBuffers = &command_buffer_;
+  VkSubmitInfo submit = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &command_buffer_,
+  };
   vkQueueSubmit(queue_, 1, &submit, fence_);
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
@@ -295,11 +325,12 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  VrdxSortInfo sort_info = {};
-  sort_info.elementCount = element_count;
-  sort_info.keysBuffer = keys_.buffer;
-  sort_info.storageBuffer = storage_.buffer;
-  sort_info.queryPool = query_pool_;
+  VrdxSortInfo sort_info = {
+      .elementCount = element_count,
+      .keysBuffer = keys_.buffer,
+      .storageBuffer = storage_.buffer,
+      .queryPool = query_pool_,
+  };
   vrdxCmdSort(command_buffer_, sorter_, &sort_info);
 
   vkEndCommandBuffer(command_buffer_);
@@ -312,9 +343,11 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   // copy back
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  region.srcOffset = 0;
-  region.dstOffset = 0;
-  region.size = element_count * sizeof(uint32_t);
+  region = {
+      .srcOffset = 0,
+      .dstOffset = 0,
+      .size = element_count * sizeof(uint32_t),
+  };
   vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &region);
 
   vkEndCommandBuffer(command_buffer_);
@@ -322,25 +355,30 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::vector<uint64_t> timestamps(timestamp_count);
-  vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
-                        timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
-                        VK_QUERY_RESULT_64_BIT);
-
-  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
-    return static_cast<uint64_t>(ticks * timestamp_period_);
-  };
-
   Results result;
   result.keys.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
-  result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
-  for (int pass = 0; pass < 4; ++pass) {
-    result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
-    result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
-    result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+
+  if (query_pool_) {
+    std::vector<uint64_t> timestamps(timestamp_count);
+    vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
+                          timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
+                          VK_QUERY_RESULT_64_BIT);
+
+    auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+      return static_cast<uint64_t>(ticks * timestamp_period_);
+    };
+
+    result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
+    for (int pass = 0; pass < 4; ++pass) {
+      result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+      result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+      result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+    }
+  } else {
+    result.total_time = result.cpu_time;
   }
   return result;
 }
@@ -371,37 +409,43 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   std::memcpy(staging_.map + 2 * inout_size, &element_count, sizeof(uint32_t));
 
   VkCommandBufferBeginInfo command_buffer_begin_info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-  command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+  };
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
+  if (query_pool_) vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
   // copy to keys/values/element count buffers
-  VkBufferCopy keys_region = {};
-  keys_region.srcOffset = 0;
-  keys_region.dstOffset = 0;
-  keys_region.size = inout_size;
+  VkBufferCopy keys_region = {
+      .srcOffset = 0,
+      .dstOffset = 0,
+      .size = inout_size,
+  };
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, keys_.buffer, 1, &keys_region);
 
-  VkBufferCopy values_region = {};
-  values_region.srcOffset = inout_size;
-  values_region.dstOffset = 0;
-  values_region.size = inout_size;
+  VkBufferCopy values_region = {
+      .srcOffset = inout_size,
+      .dstOffset = 0,
+      .size = inout_size,
+  };
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, values_.buffer, 1, &values_region);
 
-  VkBufferCopy element_count_region = {};
-  element_count_region.srcOffset = 2 * inout_size;
-  element_count_region.dstOffset = 0;
-  element_count_region.size = sizeof(uint32_t);
+  VkBufferCopy element_count_region = {
+      .srcOffset = 2 * inout_size,
+      .dstOffset = 0,
+      .size = sizeof(uint32_t),
+  };
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, element_count_.buffer, 1,
                   &element_count_region);
 
   vkEndCommandBuffer(command_buffer_);
 
-  VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-  submit.commandBufferCount = 1;
-  submit.pCommandBuffers = &command_buffer_;
+  VkSubmitInfo submit = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &command_buffer_,
+  };
   vkQueueSubmit(queue_, 1, &submit, fence_);
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
@@ -409,13 +453,14 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  VrdxSortInfo sort_info = {};
-  sort_info.elementCount = element_count;
-  sort_info.elementCountBuffer = element_count_.buffer;
-  sort_info.keysBuffer = keys_.buffer;
-  sort_info.valuesBuffer = values_.buffer;
-  sort_info.storageBuffer = storage_.buffer;
-  sort_info.queryPool = query_pool_;
+  VrdxSortInfo sort_info = {
+      .elementCount = element_count,
+      .elementCountBuffer = element_count_.buffer,
+      .keysBuffer = keys_.buffer,
+      .valuesBuffer = values_.buffer,
+      .storageBuffer = storage_.buffer,
+      .queryPool = query_pool_,
+  };
   vrdxCmdSort(command_buffer_, sorter_, &sort_info);
 
   vkEndCommandBuffer(command_buffer_);
@@ -428,16 +473,18 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // copy back
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
-  VkBufferCopy keys_back_region = {};
-  keys_back_region.srcOffset = 0;
-  keys_back_region.dstOffset = 0;
-  keys_back_region.size = inout_size;
+  VkBufferCopy keys_back_region = {
+      .srcOffset = 0,
+      .dstOffset = 0,
+      .size = inout_size,
+  };
   vkCmdCopyBuffer(command_buffer_, keys_.buffer, staging_.buffer, 1, &keys_back_region);
 
-  VkBufferCopy values_back_region = {};
-  values_back_region.srcOffset = 0;
-  values_back_region.dstOffset = inout_size;
-  values_back_region.size = inout_size;
+  VkBufferCopy values_back_region = {
+      .srcOffset = 0,
+      .dstOffset = inout_size,
+      .size = inout_size,
+  };
   vkCmdCopyBuffer(command_buffer_, values_.buffer, staging_.buffer, 1, &values_back_region);
 
   vkEndCommandBuffer(command_buffer_);
@@ -445,27 +492,32 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
 
-  std::vector<uint64_t> timestamps(timestamp_count);
-  vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
-                        timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
-                        VK_QUERY_RESULT_64_BIT);
-
-  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
-    return static_cast<uint64_t>(ticks * timestamp_period_);
-  };
-
   Results result;
   result.keys.resize(element_count);
   result.values.resize(element_count);
   std::memcpy(result.keys.data(), staging_.map, element_count * sizeof(uint32_t));
   std::memcpy(result.values.data(), staging_.map + inout_size, element_count * sizeof(uint32_t));
-  result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
-  for (int pass = 0; pass < 4; ++pass) {
-    result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
-    result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
-    result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+
+  if (query_pool_) {
+    std::vector<uint64_t> timestamps(timestamp_count);
+    vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
+                          timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
+                          VK_QUERY_RESULT_64_BIT);
+
+    auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+      return static_cast<uint64_t>(ticks * timestamp_period_);
+    };
+
+    result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
+    for (int pass = 0; pass < 4; ++pass) {
+      result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
+      result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
+      result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
+    }
+  } else {
+    result.total_time = result.cpu_time;
   }
   return result;
 }
