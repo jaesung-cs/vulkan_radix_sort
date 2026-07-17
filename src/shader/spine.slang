@@ -29,9 +29,10 @@ void main(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex, uniform int
   }
   GroupMemoryBarrierWithGroupSync();
 
-  for (uint i = index; i < partitionCount; i += WORKGROUP_SIZE) {
-    uint value = i < partitionCount
-                     ? partitionHistogram.Load<uint>((partitionCount * radix + i) * sizeof(uint))
+  for (uint i = 0; i * WORKGROUP_SIZE < partitionCount; ++i) {
+    uint id = i * WORKGROUP_SIZE + index;
+    uint value = id < partitionCount
+                     ? partitionHistogram.Load<uint>((partitionCount * radix + id) * sizeof(uint))
                      : 0;
     uint excl = WavePrefixSum(value) + reduction;
 
@@ -51,8 +52,8 @@ void main(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex, uniform int
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (i < partitionCount) {
-      partitionHistogram.Store<uint>((partitionCount * radix + i) * sizeof(uint),
+    if (id < partitionCount) {
+      partitionHistogram.Store<uint>((partitionCount * radix + id) * sizeof(uint),
                                      excl + sh0[waveIndex]);
     }
   }

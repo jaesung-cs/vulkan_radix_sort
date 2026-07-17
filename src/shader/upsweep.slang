@@ -18,6 +18,10 @@ void main(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex, uniform int
   uint partitionStart = partitionIndex * PARTITION_SIZE;
   uint partitionCount = (elementCount + PARTITION_SIZE - 1) / PARTITION_SIZE;
 
+  if (partitionStart >= elementCount) {
+    return;
+  }
+
   if (index < RADIX) {
     sh0[index] = 0;
   }
