@@ -32,8 +32,7 @@ uint4 WaveMatch8(uint value) {
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE)]
-void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
-          uint groupIndex: SV_GroupIndex, uniform int pass) {
+void main(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex, uniform int pass) {
   uint elementCount = elementCounts.Load<uint>(0);
 
   uint laneIndex = WaveGetLaneIndex();          // 0..31 or 0..63
@@ -44,19 +43,18 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 
   uint partitionIndex = groupId.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
+  uint partitionCount = (elementCount + PARTITION_SIZE - 1) / PARTITION_SIZE;
 
   uint4 waveMask = WaveGetLaneLtMask();
 
   uint localKeys[PARTITION_DIVISION];
   uint localOffsets[PARTITION_DIVISION];
-#ifdef KEY_VALUE
-  uint localValues[PARTITION_DIVISION];
-#endif  // KEY_VALUE
 
   // load global/partition histograms
   if (index < RADIX) {
-    sh2[index] = globalHistogram.Load<uint>((RADIX * pass + index) * sizeof(uint)) +
-                 partitionHistogram.Load<uint>((RADIX * partitionIndex + index) * sizeof(uint));
+    sh2[index] =
+        globalHistogram.Load<uint>((RADIX * pass + index) * sizeof(uint)) +
+        partitionHistogram.Load<uint>((partitionCount * index + partitionIndex) * sizeof(uint));
   }
   // fill zero (256, 16)
   for (int i = laneIndex; i < RADIX; i += laneCount) {
@@ -72,10 +70,6 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
         partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
     uint key = keyIndex < elementCount ? keysIn.Load<uint>(keyIndex * sizeof(uint)) : 0xffffffff;
     localKeys[i] = key;
-
-#ifdef KEY_VALUE
-    localValues[i] = keyIndex < elementCount ? valuesIn.Load<uint>(keyIndex * sizeof(uint)) : 0;
-#endif  // KEY_VALUE
   }
 
   // calculate wave radix counts, offsets
@@ -180,7 +174,10 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
 
   [ForceUnroll]
   for (int i = 0; i < PARTITION_DIVISION; ++i) {
-    sh0[localOffsets[i]] = localValues[i];
+    uint keyIndex =
+        partitionStart + (PARTITION_DIVISION * laneCount) * waveIndex + i * laneCount + laneIndex;
+    uint value = keyIndex < elementCount ? valuesIn.Load<uint>(keyIndex * sizeof(uint)) : 0;
+    sh0[localOffsets[i]] = value;
   }
   GroupMemoryBarrierWithGroupSync();
 
