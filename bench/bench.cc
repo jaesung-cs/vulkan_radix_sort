@@ -187,10 +187,11 @@ int main(int argc, char** argv) {
 
       std::cout << "[" << std::setw(3) << i + 1 << "/" << ns.size() << "]"
                 << " N=" << std::setw(9) << n << " [" << std::setw(4) << sort << "]"
-                << "  gpu: " << std::fixed << std::setprecision(3) << row.gpu_ms << "ms"
-                << " (" << std::setprecision(2) << row.gpu_gitems_s << " GItems/s)"
-                << "  cpu: " << std::setprecision(3) << row.cpu_ms << "ms"
-                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)";
+                << "  gpu: " << std::fixed << std::setw(6) << std::setprecision(3) << row.gpu_ms
+                << "ms" << " (" << std::setw(5) << std::setprecision(2) << row.gpu_gitems_s
+                << " GItems/s)" << "  cpu: " << std::setw(6) << std::setprecision(3) << row.cpu_ms
+                << "ms" << " (" << std::setw(5) << std::setprecision(2) << row.cpu_gitems_s
+                << " GItems/s)";
       if (row.upsweep_ms > 0 || row.spine_ms > 0 || row.downsweep_ms > 0) {
         auto pct = [&](double ms) -> int {
           return row.gpu_ms > 0 ? static_cast<int>(ms / row.gpu_ms * 100 + 0.5) : 0;
