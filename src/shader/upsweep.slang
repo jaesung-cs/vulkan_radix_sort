@@ -5,19 +5,25 @@ RWByteAddressBuffer globalHistogram : register(u1, space0);
 RWByteAddressBuffer partitionHistogram : register(u2, space0);
 ByteAddressBuffer keys : register(t3, space0);
 
-groupshared uint localHistogram[RADIX];
+groupshared uint sh0[RADIX];
 
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE)]
-void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, uniform int pass) {
+void main(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex, uniform int pass) {
   uint elementCount = elementCounts.Load<uint>(0);
 
-  uint index = groupThreadID.x;
+  uint index = groupIndex;
+
   uint partitionIndex = groupId.x;
   uint partitionStart = partitionIndex * PARTITION_SIZE;
+  uint partitionCount = (elementCount + PARTITION_SIZE - 1) / PARTITION_SIZE;
+
+  if (partitionStart >= elementCount) {
+    return;
+  }
 
   if (index < RADIX) {
-    localHistogram[index] = 0;
+    sh0[index] = 0;
   }
   GroupMemoryBarrierWithGroupSync();
 
@@ -27,15 +33,16 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID, unif
     uint keyIndex = partitionStart + WORKGROUP_SIZE * i + index;
     uint key = keyIndex < elementCount ? keys.Load<uint>(keyIndex * sizeof(uint)) : 0xffffffff;
     uint radix = bitfieldExtract(key, 8 * pass, 8);
-    InterlockedAdd(localHistogram[radix], 1);
+    InterlockedAdd(sh0[radix], 1);
   }
   GroupMemoryBarrierWithGroupSync();
 
   if (index < RADIX) {
     // set to partition histogram
-    partitionHistogram.Store<uint>((RADIX * partitionIndex + index) * sizeof(uint), localHistogram[index]);
+    partitionHistogram.Store<uint>((partitionCount * index + partitionIndex) * sizeof(uint),
+                                   sh0[index]);
 
     // add to global histogram
-    globalHistogram.InterlockedAdd((RADIX * pass + index) * sizeof(uint), localHistogram[index]);
+    globalHistogram.InterlockedAdd((RADIX * pass + index) * sizeof(uint), sh0[index]);
   }
 }

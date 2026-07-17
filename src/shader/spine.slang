@@ -5,13 +5,13 @@ RWByteAddressBuffer globalHistogram : register(u1, space0);
 RWByteAddressBuffer partitionHistogram : register(u2, space0);
 
 groupshared uint reduction;
-groupshared uint intermediate[MAX_SUBGROUP_SIZE];
+groupshared uint sh0[MAX_SUBGROUP_SIZE];
+groupshared uint sh1[RADIX];
 
 // dispatch this shader (RADIX, 1, 1), so that gl_WorkGroupID.x is radix
 [shader("compute")]
 [numthreads(WORKGROUP_SIZE)]
-void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
-          uint groupIndex: SV_GroupIndex, uniform int pass) {
+void main(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex, uniform int pass) {
   uint elementCount = elementCounts.Load<uint>(0);
 
   uint laneIndex = WaveGetLaneIndex();  // 0..31 or 0..63
@@ -29,35 +29,33 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
   }
   GroupMemoryBarrierWithGroupSync();
 
-  for (uint i = 0; WORKGROUP_SIZE * i < partitionCount; ++i) {
-    uint partitionIndex = WORKGROUP_SIZE * i + index;
-    uint value = partitionIndex < partitionCount
-                     ? partitionHistogram.Load<uint>((RADIX * partitionIndex + radix) * sizeof(uint))
+  for (uint i = 0; i * WORKGROUP_SIZE < partitionCount; ++i) {
+    uint id = i * WORKGROUP_SIZE + index;
+    uint value = id < partitionCount
+                     ? partitionHistogram.Load<uint>((partitionCount * radix + id) * sizeof(uint))
                      : 0;
     uint excl = WavePrefixSum(value) + reduction;
-    uint sum = WaveActiveSum(value);
 
-    if (WaveIsFirstLane()) {
-      intermediate[waveIndex] = sum;
+    if (laneIndex == laneCount - 1) {
+      sh0[waveIndex] = excl + value - reduction;
     }
     GroupMemoryBarrierWithGroupSync();
 
     if (index < waveCount) {
-      uint excl = WavePrefixSum(intermediate[index]);
-      uint sum = WaveActiveSum(intermediate[index]);
-      intermediate[index] = excl;
+      uint v = sh0[index];
+      uint excl = WavePrefixSum(v);
+      sh0[index] = excl;
 
-      if (index == 0) {
-        reduction += sum;
+      if (index == waveCount - 1) {
+        reduction += excl + v;
       }
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (partitionIndex < partitionCount) {
-      excl += intermediate[waveIndex];
-      partitionHistogram.Store<uint>((RADIX * partitionIndex + radix) * sizeof(uint), excl);
+    if (id < partitionCount) {
+      partitionHistogram.Store<uint>((partitionCount * radix + id) * sizeof(uint),
+                                     excl + sh0[waveIndex]);
     }
-    GroupMemoryBarrierWithGroupSync();
   }
 
   if (radix == 0) {
@@ -65,21 +63,18 @@ void main(uint3 groupThreadID: SV_GroupThreadID, uint3 groupId: SV_GroupID,
     if (index < RADIX) {
       uint value = globalHistogram.Load<uint>((RADIX * pass + index) * sizeof(uint));
       uint excl = WavePrefixSum(value);
-      uint sum = WaveActiveSum(value);
 
-      if (WaveIsFirstLane()) {
-        intermediate[waveIndex] = sum;
+      if (laneIndex == laneCount - 1) {
+        sh1[waveIndex] = excl + value;
       }
       GroupMemoryBarrierWithGroupSync();
 
       if (index < RADIX / laneCount) {
-        uint excl = WavePrefixSum(intermediate[index]);
-        intermediate[index] = excl;
+        sh1[index] = WavePrefixSum(sh1[index]);
       }
       GroupMemoryBarrierWithGroupSync();
 
-      excl += intermediate[waveIndex];
-      globalHistogram.Store<uint>((RADIX * pass + index) * sizeof(uint), excl);
+      globalHistogram.Store<uint>((RADIX * pass + index) * sizeof(uint), excl + sh1[waveIndex]);
     }
   }
 }

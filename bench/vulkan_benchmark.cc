@@ -9,6 +9,7 @@ namespace {
 uint32_t Align(uint32_t a, uint32_t b) { return (a + b - 1) / b * b; }
 
 constexpr auto timestamp_count = 15;
+constexpr auto timing_query_count = 2;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -219,6 +220,14 @@ VulkanBenchmark::VulkanBenchmark(bool validation, bool timestamps) {
     vkCreateQueryPool(device_, &query_pool_info, NULL, &query_pool_);
   }
 
+  // lightweight always-on query pool for total GPU time, matching cuda/fuchsia benchmarks
+  VkQueryPoolCreateInfo timing_pool_info = {
+      .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+      .queryType = VK_QUERY_TYPE_TIMESTAMP,
+      .queryCount = timing_query_count,
+  };
+  vkCreateQueryPool(device_, &timing_pool_info, NULL, &timing_pool_);
+
   // sorter
   VrdxSorterCreateInfo sorter_info = {
       .physicalDevice = physical_device_,
@@ -232,13 +241,12 @@ VulkanBenchmark::~VulkanBenchmark() {
 
   if (keys_.buffer) vmaDestroyBuffer(allocator_, keys_.buffer, keys_.allocation);
   if (values_.buffer) vmaDestroyBuffer(allocator_, values_.buffer, values_.allocation);
-  if (element_count_.buffer)
-    vmaDestroyBuffer(allocator_, element_count_.buffer, element_count_.allocation);
   if (storage_.buffer) vmaDestroyBuffer(allocator_, storage_.buffer, storage_.allocation);
   if (staging_.buffer) vmaDestroyBuffer(allocator_, staging_.buffer, staging_.allocation);
 
   vrdxDestroySorter(sorter_);
   vkDestroyQueryPool(device_, query_pool_, NULL);
+  vkDestroyQueryPool(device_, timing_pool_, NULL);
   vkDestroyFence(device_, fence_, NULL);
   vkDestroyCommandPool(device_, command_pool_, NULL);
   vmaDestroyAllocator(allocator_);
@@ -325,6 +333,9 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
+  vkCmdResetQueryPool(command_buffer_, timing_pool_, 0, timing_query_count);
+  vkCmdWriteTimestamp(command_buffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool_, 0);
+
   VrdxSortInfo sort_info = {
       .elementCount = element_count,
       .keysBuffer = keys_.buffer,
@@ -332,6 +343,8 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
       .queryPool = query_pool_,
   };
   vrdxCmdSort(command_buffer_, sorter_, &sort_info);
+
+  vkCmdWriteTimestamp(command_buffer_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool_, 1);
 
   vkEndCommandBuffer(command_buffer_);
   auto cpu_start = std::chrono::steady_clock::now();
@@ -361,24 +374,26 @@ VulkanBenchmark::Results VulkanBenchmark::Sort(const std::vector<uint32_t>& keys
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
 
+  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+    return static_cast<uint64_t>(ticks * timestamp_period_);
+  };
+
+  uint64_t timing[timing_query_count];
+  vkGetQueryPoolResults(device_, timing_pool_, 0, timing_query_count, sizeof(timing), timing,
+                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+  result.total_time = ticks_to_ns(timing[1] - timing[0]);
+
   if (query_pool_) {
     std::vector<uint64_t> timestamps(timestamp_count);
     vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
                           timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                           VK_QUERY_RESULT_64_BIT);
 
-    auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
-      return static_cast<uint64_t>(ticks * timestamp_period_);
-    };
-
-    result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
     for (int pass = 0; pass < 4; ++pass) {
       result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
       result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
       result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
     }
-  } else {
-    result.total_time = result.cpu_time;
   }
   return result;
 }
@@ -388,15 +403,12 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   uint32_t element_count = keys.size();
   uint32_t inout_size = Align(element_count * sizeof(uint32_t), min_buffer_alignment_);
 
-  Reallocate(&staging_, 2 * inout_size + sizeof(uint32_t),
+  Reallocate(&staging_, 2 * inout_size,
              VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
   Reallocate(&keys_, inout_size,
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
   Reallocate(&values_, inout_size,
-             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                 VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-  Reallocate(&element_count_, sizeof(uint32_t),
              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
@@ -406,7 +418,6 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
 
   std::memcpy(staging_.map, keys.data(), element_count * sizeof(uint32_t));
   std::memcpy(staging_.map + inout_size, values.data(), element_count * sizeof(uint32_t));
-  std::memcpy(staging_.map + 2 * inout_size, &element_count, sizeof(uint32_t));
 
   VkCommandBufferBeginInfo command_buffer_begin_info = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -416,7 +427,7 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
 
   if (query_pool_) vkCmdResetQueryPool(command_buffer_, query_pool_, 0, timestamp_count);
 
-  // copy to keys/values/element count buffers
+  // copy to keys/values buffers
   VkBufferCopy keys_region = {
       .srcOffset = 0,
       .dstOffset = 0,
@@ -430,14 +441,6 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
       .size = inout_size,
   };
   vkCmdCopyBuffer(command_buffer_, staging_.buffer, values_.buffer, 1, &values_region);
-
-  VkBufferCopy element_count_region = {
-      .srcOffset = 2 * inout_size,
-      .dstOffset = 0,
-      .size = sizeof(uint32_t),
-  };
-  vkCmdCopyBuffer(command_buffer_, staging_.buffer, element_count_.buffer, 1,
-                  &element_count_region);
 
   vkEndCommandBuffer(command_buffer_);
 
@@ -453,15 +456,19 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   // sort
   vkBeginCommandBuffer(command_buffer_, &command_buffer_begin_info);
 
+  vkCmdResetQueryPool(command_buffer_, timing_pool_, 0, timing_query_count);
+  vkCmdWriteTimestamp(command_buffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timing_pool_, 0);
+
   VrdxSortInfo sort_info = {
       .elementCount = element_count,
-      .elementCountBuffer = element_count_.buffer,
       .keysBuffer = keys_.buffer,
       .valuesBuffer = values_.buffer,
       .storageBuffer = storage_.buffer,
       .queryPool = query_pool_,
   };
   vrdxCmdSort(command_buffer_, sorter_, &sort_info);
+
+  vkCmdWriteTimestamp(command_buffer_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timing_pool_, 1);
 
   vkEndCommandBuffer(command_buffer_);
   auto cpu_start = std::chrono::steady_clock::now();
@@ -500,24 +507,26 @@ VulkanBenchmark::Results VulkanBenchmark::SortKeyValue(const std::vector<uint32_
   result.cpu_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count();
 
+  auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
+    return static_cast<uint64_t>(ticks * timestamp_period_);
+  };
+
+  uint64_t timing[timing_query_count];
+  vkGetQueryPoolResults(device_, timing_pool_, 0, timing_query_count, sizeof(timing), timing,
+                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+  result.total_time = ticks_to_ns(timing[1] - timing[0]);
+
   if (query_pool_) {
     std::vector<uint64_t> timestamps(timestamp_count);
     vkGetQueryPoolResults(device_, query_pool_, 0, timestamps.size(),
                           timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
                           VK_QUERY_RESULT_64_BIT);
 
-    auto ticks_to_ns = [&](uint64_t ticks) -> uint64_t {
-      return static_cast<uint64_t>(ticks * timestamp_period_);
-    };
-
-    result.total_time = ticks_to_ns(timestamps[timestamp_count - 1] - timestamps[0]);
     for (int pass = 0; pass < 4; ++pass) {
       result.upsweep_ns += ticks_to_ns(timestamps[2 + 3 * pass] - timestamps[1 + 3 * pass]);
       result.spine_ns += ticks_to_ns(timestamps[3 + 3 * pass] - timestamps[2 + 3 * pass]);
       result.downsweep_ns += ticks_to_ns(timestamps[4 + 3 * pass] - timestamps[3 + 3 * pass]);
     }
-  } else {
-    result.total_time = result.cpu_time;
   }
   return result;
 }

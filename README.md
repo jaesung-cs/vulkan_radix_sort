@@ -2,7 +2,7 @@
 
 Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan library. No additional dependencies.
 
-> **Note:** As of July 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.50× on keys-only and 1.25× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
+> **Note:** As of July 2026 (CUDA 13.2, CUB v3.2.0 Onesweep), CUB is faster by 1.39× on keys-only and 1.19× on key-value at N = 2^25. Still a practical choice for Vulkan-based workflows.
 
 ## Requirements
 
@@ -10,6 +10,8 @@ Reduce-then-scan GPU radix sort, implemented as a single-file header-only Vulkan
     - download from https://vulkan.lunarg.com/ (push descriptor requires >= 1.4; >= 1.4.328.1 for macOS)
 - `cmake >= 3.24`
 - Subgroup size of 32 or 64 lanes, and >= 20 KB of workgroup (`groupshared`) memory
+
+Performance is tuned for NVIDIA GPUs with a subgroup size of 32. Subgroup size 64 devices should still work, just not necessarily as fast, and mobile GPUs with a subgroup size of 16 or smaller aren't supported.
 
 ## Build
 
@@ -70,14 +72,18 @@ $ python tools/plot.py vulkan.csv cuda.csv fuchsia.csv --output results.png
 
 Test environment: Windows, NVIDIA GeForce RTX 5080, CUDA 13.2, CUB v3.2.0 (Onesweep default).
 
-Median throughput at N = 2^25. Ratios relative to this library (> 1× means the competitor is faster).
+Median GPU and CPU throughput at N = 2^25. Ratios are GPU throughput relative to this library (> 1× means the competitor is faster).
 
-| Sort type | This library (Vulkan) | Fuchsia (Vulkan) | CUB Onesweep (CUDA) |
-|---|---|---|---|
-| 32-bit keys only | 14.93 GItems/s | 15.59 GItems/s (1.04×) | 22.36 GItems/s (1.50×) |
-| 32-bit key-value | 9.35 GItems/s | 5.32 GItems/s (0.57×) | 11.67 GItems/s (1.25×) |
+| Sort type | Backend | GPU (GItems/s) | CPU (GItems/s) | Ratio |
+|---|---|---|---|---|
+| 32-bit keys only | VRDX | 16.26 | 15.73 | – |
+| 32-bit keys only | Fuchsia | 15.56 | 14.92 | 0.96× |
+| 32-bit keys only | CUB | 22.54 | 20.55 | 1.39× |
+| 32-bit key-value | VRDX | 9.89 | 9.67 | – |
+| 32-bit key-value | Fuchsia | 5.19 | 5.08 | 0.52× |
+| 32-bit key-value | CUB | 11.73 | 11.13 | 1.19× |
 
-Keys-only is now within 4% of [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) after the downsweep rework (splitting per-wave histogram accumulation from local offset lookup). Fuchsia is 1.76× slower on key-value — it packs pairs into a single 64-bit key, doubling memory traffic, while this library sorts the two buffers independently. Key-value still trails CUB by 1.25×, with room for a similar optimization.
+Keys-only now edges out [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) by about 5%, after transposing the partition-histogram layout for coalesced spine access and skipping padding partitions in indirect sorts. Fuchsia is 1.91× slower on key-value — it packs pairs into a single 64-bit key, doubling memory traffic, while this library sorts the two buffers independently. Key-value still trails CUB by 1.19×, with room for a similar optimization.
 
 ![Benchmark Result](media/results.png)
 

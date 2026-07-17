@@ -1,7 +1,6 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <random>
 #include <string>
 #include <vector>
 
@@ -19,7 +18,6 @@ constexpr uint32_t kNMin = 1u << 18;
 constexpr uint32_t kNMax = 1u << 25;
 constexpr int kNCount = 128;
 constexpr uint32_t kNStep = (kNMax - kNMin) / (kNCount - 1);
-constexpr uint32_t kNDisturbance = 4096;
 
 double toMs(uint64_t ns) { return static_cast<double>(ns) / 1e6; }
 double toGItemsS(uint32_t n, uint64_t ns) {
@@ -171,10 +169,8 @@ int main(int argc, char** argv) {
   if (result.count("n")) {
     ns = result["n"].as<std::vector<uint32_t>>();
   } else {
-    std::mt19937 rng(42);
-    std::uniform_int_distribution<uint32_t> disturb(0, kNDisturbance - 1);
     for (int i = 0; i < kNCount; ++i) {
-      ns.push_back(kNMin + static_cast<uint32_t>(i) * kNStep + disturb(rng));
+      ns.push_back(kNMin + static_cast<uint32_t>(i) * kNStep);
     }
   }
 
@@ -191,10 +187,11 @@ int main(int argc, char** argv) {
 
       std::cout << "[" << std::setw(3) << i + 1 << "/" << ns.size() << "]"
                 << " N=" << std::setw(9) << n << " [" << std::setw(4) << sort << "]"
-                << "  gpu: " << std::fixed << std::setprecision(3) << row.gpu_ms << "ms"
-                << " (" << std::setprecision(2) << row.gpu_gitems_s << " GItems/s)"
-                << "  cpu: " << std::setprecision(3) << row.cpu_ms << "ms"
-                << " (" << std::setprecision(2) << row.cpu_gitems_s << " GItems/s)";
+                << "  gpu: " << std::fixed << std::setw(6) << std::setprecision(3) << row.gpu_ms
+                << "ms" << " (" << std::setw(5) << std::setprecision(2) << row.gpu_gitems_s
+                << " GItems/s)" << "  cpu: " << std::setw(6) << std::setprecision(3) << row.cpu_ms
+                << "ms" << " (" << std::setw(5) << std::setprecision(2) << row.cpu_gitems_s
+                << " GItems/s)";
       if (row.upsweep_ms > 0 || row.spine_ms > 0 || row.downsweep_ms > 0) {
         auto pct = [&](double ms) -> int {
           return row.gpu_ms > 0 ? static_cast<int>(ms / row.gpu_ms * 100 + 0.5) : 0;
