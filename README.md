@@ -76,14 +76,14 @@ Median GPU and CPU throughput at N = 2^25. Ratios are GPU throughput relative to
 
 | Sort type | Backend | GPU (GItems/s) | CPU (GItems/s) | Ratio |
 |---|---|---|---|---|
-| 32-bit keys only | VRDX | 16.26 | 15.73 | – |
-| 32-bit keys only | Fuchsia | 15.56 | 14.92 | 0.96× |
-| 32-bit keys only | CUB | 22.54 | 20.55 | 1.39× |
-| 32-bit key-value | VRDX | 9.89 | 9.67 | – |
-| 32-bit key-value | Fuchsia | 5.19 | 5.08 | 0.52× |
-| 32-bit key-value | CUB | 11.73 | 11.13 | 1.19× |
+| 32-bit keys only | VRDX | 16.59 | 15.65 | – |
+| 32-bit keys only | Fuchsia | 15.77 | 14.69 | 0.95× |
+| 32-bit keys only | CUB | 22.55 | 20.61 | 1.36× |
+| 32-bit key-value | VRDX | 9.96 | 9.59 | – |
+| 32-bit key-value | Fuchsia | 10.22 | 9.71 | 1.03× |
+| 32-bit key-value | CUB | 11.74 | 11.13 | 1.18× |
 
-Keys-only now edges out [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) by about 5%, after transposing the partition-histogram layout for coalesced spine access and skipping padding partitions in indirect sorts. Fuchsia is 1.91× slower on key-value — it packs pairs into a single 64-bit key, doubling memory traffic, while this library sorts the two buffers independently. Key-value still trails CUB by 1.19×, with room for a similar optimization.
+Keys-only now edges out [Fuchsia radix sort](https://github.com/juliusikkala/fuchsia_radix_sort) by about 5%, after transposing the partition-histogram layout for coalesced spine access and skipping padding partitions in indirect sorts. On key-value, Fuchsia is about 3% faster at large N: it packs each pair into a 64-bit keyval and sorts only the upper 32 key bits (4 passes), while this library sorts the key and value buffers independently. Key-value still trails CUB by 1.18×, with room for a similar optimization.
 
 ![Benchmark Result](media/results.png)
 

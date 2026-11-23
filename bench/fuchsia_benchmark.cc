@@ -330,10 +330,11 @@ FuchsiaBenchmark::Results FuchsiaBenchmark::SortKeyValue(const std::vector<uint3
   Reallocate(&kv_odd_, mr.keyvals_size, kKeyval);
   Reallocate(&kv_internal_, mr.internal_size, kInternal);
 
-  // Pack (key << 32 | original_index) to produce a stable sort by key.
-  // After sorting, unpack: key = upper 32 bits, value = values[lower 32 bits].
+  // Pack (key << 32 | value). Fuchsia treats the most significant `key_bits` of each keyval as the
+  // key, so with key_bits = 32 only the upper 32 bits are sorted (4 passes) and the value is carried
+  // along. LSD radix sort is stable, so equal keys keep their original relative order.
   auto* packed = reinterpret_cast<uint64_t*>(staging_.map);
-  for (uint32_t i = 0; i < n; ++i) packed[i] = (static_cast<uint64_t>(keys[i]) << 32) | i;
+  for (uint32_t i = 0; i < n; ++i) packed[i] = (static_cast<uint64_t>(keys[i]) << 32) | values[i];
 
   VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -357,7 +358,7 @@ FuchsiaBenchmark::Results FuchsiaBenchmark::SortKeyValue(const std::vector<uint3
   vkCmdWriteTimestamp(command_buffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool_, 0);
 
   radix_sort_vk_sort_info_t sort_info = {};
-  sort_info.key_bits = 64;
+  sort_info.key_bits = 32;
   sort_info.count = n;
   sort_info.keyvals_even = {kv_even_.buffer, 0, mr.keyvals_size};
   sort_info.keyvals_odd = {kv_odd_.buffer, 0, mr.keyvals_size};
@@ -394,7 +395,7 @@ FuchsiaBenchmark::Results FuchsiaBenchmark::SortKeyValue(const std::vector<uint3
   const auto* sorted = reinterpret_cast<const uint64_t*>(staging_.map);
   for (uint32_t i = 0; i < n; ++i) {
     result.keys[i] = static_cast<uint32_t>(sorted[i] >> 32);
-    result.values[i] = values[sorted[i] & 0xFFFFFFFFu];
+    result.values[i] = static_cast<uint32_t>(sorted[i] & 0xFFFFFFFFu);
   }
   result.total_time = static_cast<uint64_t>((timestamps[1] - timestamps[0]) *
                                             static_cast<double>(timestamp_period_));
