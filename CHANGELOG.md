@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Fixed Fuchsia key-value benchmark sorting 64 key bits (8 passes) instead of 32 (4 passes); Fuchsia key-value throughput roughly doubles (#30, @Kek1234567890)
+
 ## v0.3.1
 - Added Fuchsia radix sort benchmark.
 - Volk integration simplified: include `volk.h` before `vk_radix_sort.h` instead of defining `VRDX_USE_VOLK`.
